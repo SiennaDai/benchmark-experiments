@@ -95,8 +95,39 @@ def flatten(value, prefix=""):
     return out
 
 
+IDENTITY_FIELDS = frozenset({"experiment.name"})
+GENERATED_FIELDS = frozenset({"fingerprint", "derived.recipe_path"})
+
+
+def recipe_field_classification(config: dict) -> dict[str, str]:
+    """Classify resolved-recipe paths for comparison.
+
+    A recipe is scientific configuration.  Its human-readable experiment name is
+    an identity/label, however; generated fingerprint and path values are neither
+    treatments nor scientific conditions.  Runtime controls intentionally never
+    enter a recipe and therefore cannot be varied here.
+    """
+    paths = set(flatten(config))
+    return {
+        path: "identity" if path in IDENTITY_FIELDS else
+        "generated" if path in GENERATED_FIELDS else "scientific"
+        for path in paths
+    }
+
+
+def validate_scientific_vary(configs, vary):
+    """Reject typos and attempts to treat labels/generated values as treatments."""
+    known = set().union(*(recipe_field_classification(cfg) for cfg in configs))
+    invalid = [field for field in vary if field not in known or field in IDENTITY_FIELDS or field in GENERATED_FIELDS]
+    if invalid:
+        raise ValueError("vary must contain declared scientific recipe fields; invalid=" + ", ".join(sorted(invalid)))
+
+
 def scientific_differences(configs, runs, vary):
-    base = flatten(configs[0]); ignored = set(vary) | {"experiment.name", "fingerprint", "derived.recipe_path"}
+    if not configs:
+        return []
+    validate_scientific_vary(configs, vary)
+    base = flatten(configs[0]); ignored = set(vary) | IDENTITY_FIELDS | GENERATED_FIELDS
     differences = []
     for run, cfg in zip(runs[1:], configs[1:]):
         other = flatten(cfg)

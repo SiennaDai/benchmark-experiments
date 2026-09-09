@@ -23,8 +23,9 @@ def plot(rows, output, x, filename, xlabel):
         if points: plt.plot([p[x] for p in points], [p["nll"] for p in points], marker="o", label=label(s))
     plt.xlabel(xlabel); plt.ylabel("validation NLL (nats/token)"); plt.legend(); plt.tight_layout(); plt.savefig(output/filename); plt.close()
 def main():
-    p=argparse.ArgumentParser(); p.add_argument("--runs", nargs="+", required=True); p.add_argument("--vary", nargs="+", required=True); p.add_argument("--output", required=True); a=p.parse_args()
-    runs=sorted((Path(x).resolve() for x in a.runs), key=lambda p: str(p)); cfgs=[json.loads((r/"resolved_config.json").read_text()) for r in runs]
+    p=argparse.ArgumentParser(); p.add_argument("--runs", nargs="+", required=True); p.add_argument("--vary", nargs="*", default=[]); p.add_argument("--output", required=True); a=p.parse_args()
+    # Argument order is meaningful: suite definitions deliberately prescribe it.
+    runs=[Path(x).resolve() for x in a.runs]; cfgs=[json.loads((r/"resolved_config.json").read_text()) for r in runs]
     out=Path(a.output); out.mkdir(parents=True,exist_ok=True); differences=scientific_differences(cfgs,runs,a.vary); (out/"differences.json").write_text(json.dumps(differences,indent=2)+"\n")
     if differences: raise SystemExit("scientific conditions differ; see differences.json")
     rows=[summarize_run(r) for r in runs]
