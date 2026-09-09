@@ -1,0 +1,81 @@
+{
+  "experiment": {
+    "name": "mini_fp32_reference_adamw_bf16_state",
+    "protocol_id": "slimpajama-hash-split-v1",
+    "seed": 0,
+    "data_seed": 1337,
+    "algorithm_seed": 2026
+  },
+  "model": {
+    "family": "llama",
+    "n_layer": 6,
+    "n_embd": 384,
+    "n_head": 6,
+    "ffn_dim": 1024,
+    "multiple_of": 256,
+    "vocab_size": 50304,
+    "sequence_length": 256,
+    "dropout": 0,
+    "bias": false,
+    "tie_embeddings": true,
+    "init_std": 0.02,
+    "rmsnorm_eps": 1e-05,
+    "rope_theta": 10000
+  },
+  "data": {
+    "manifest": "data/slimpajama_small/manifest.json",
+    "train_split": "train",
+    "validation_split": "validation",
+    "allow_repeated_epochs": false
+  },
+  "train": {
+    "target_tokens": 8388608,
+    "micro_batch_size": 4,
+    "accumulation_steps": 8,
+    "grad_clip_norm": 1.0
+  },
+  "optimizer": {
+    "name": "reference_adamw",
+    "lr": 0.001,
+    "betas": [
+      0.9,
+      0.95
+    ],
+    "eps": 1e-08,
+    "weight_decay": 0.1,
+    "fused": false,
+    "foreach": false,
+    "state_simulation": "bf16_roundtrip"
+  },
+  "schedule": {
+    "name": "cosine",
+    "warmup_updates": 20,
+    "final_lr_ratio": 0.1
+  },
+  "precision": {
+    "compute": "fp32",
+    "parameter_dtype": "fp32",
+    "gradient_dtype": "fp32",
+    "tf32": false,
+    "attention_backend": "auto",
+    "deterministic": true,
+    "compile": false
+  },
+  "eval": {
+    "every_updates": 128,
+    "max_target_tokens": 65536,
+    "batch_size": 1,
+    "compute": "fp32",
+    "attention_backend": "math"
+  },
+  "logging": {
+    "every_updates": 1,
+    "diagnostics": true,
+    "wandb": false
+  },
+  "checkpoint": {
+    "every_updates": 128,
+    "save_initial": true,
+    "save_final": true
+  }
+}

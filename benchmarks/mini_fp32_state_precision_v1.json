@@ -1,0 +1,23 @@
+{
+  "name": "mini_fp32_state_precision_v1",
+  "runs": [
+    {
+      "run_id": "reference_adamw_s0",
+      "recipe": "../recipes/mini_fp32_reference_adamw.json"
+    },
+    {
+      "run_id": "reference_adamw_bf16_state_s0",
+      "recipe": "../recipes/mini_fp32_reference_adamw_bf16_state.json"
+    }
+  ],
+  "vary": [
+    "optimizer.state_simulation"
+  ],
+  "runtime": {
+    "device": "cuda:0",
+    "max_wall_seconds": 3300
+  },
+  "report": {
+    "output": "reports/mini_fp32_state_precision_v1"
+  }
+}
