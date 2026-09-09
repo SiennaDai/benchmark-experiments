@@ -135,3 +135,42 @@ def scientific_differences(configs, runs, vary):
             if key not in ignored and base.get(key) != other.get(key):
                 differences.append({"run": str(run), "field": key, "base": base.get(key), "other": other.get(key)})
     return differences
+
+
+def _path_value(config, path):
+    value = config
+    for part in path.split("."):
+        value = value[part]
+    return value
+
+
+def replication_summary(rows, configs, spec):
+    """Aggregate declared treatment values and paired deltas without inference."""
+    group_by, treatment = spec["group_by"], spec["treatment_field"]
+    control = spec["control_value"]
+    groups = {}
+    for row, cfg in zip(rows, configs):
+        key = tuple(_path_value(cfg, field) for field in group_by)
+        groups.setdefault(key, {})[_path_value(cfg, treatment)] = row
+    aggregates = {}
+    for value in [control, *spec["treatment_values"]]:
+        selected = [g[value] for g in groups.values() if value in g and g[value].get("status") == "completed"]
+        aggregates[str(value)] = {"n": len(selected)}
+        for metric in ("final_validation_nll", "best_validation_nll"):
+            numbers = [r[metric] for r in selected if r.get(metric) is not None]
+            aggregates[str(value)][metric] = {"mean": statistics.mean(numbers) if numbers else None,
+                                               "sample_std": statistics.stdev(numbers) if len(numbers) > 1 else None}
+    pairs = []
+    for key, group in groups.items():
+        if control not in group: continue
+        for value in spec["treatment_values"]:
+            if value in group and group[value].get("final_validation_nll") is not None and group[control].get("final_validation_nll") is not None:
+                pairs.append({"group": list(key), "treatment": value,
+                              "delta_final_validation_nll": group[value]["final_validation_nll"] - group[control]["final_validation_nll"]})
+    for value in spec["treatment_values"]:
+        deltas = [p["delta_final_validation_nll"] for p in pairs if p["treatment"] == value]
+        aggregates[str(value)]["paired_delta_final_validation_nll"] = {"n": len(deltas),
+            "mean": statistics.mean(deltas) if deltas else None,
+            "sample_std": statistics.stdev(deltas) if len(deltas) > 1 else None}
+    return {"group_by": group_by, "treatment_field": treatment, "control_value": control,
+            "aggregates": aggregates, "pairs": pairs}

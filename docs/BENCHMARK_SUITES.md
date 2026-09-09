@@ -23,7 +23,13 @@ source of truth.
   ],
   "vary": ["optimizer.name"],
   "runtime": {"device": "cuda:0", "max_wall_seconds": 3300},
-  "report": {"output": "reports/example_benchmark_v1"}
+  "report": {"output": "reports/example_benchmark_v1"},
+  "replication": {
+    "group_by": ["experiment.seed", "experiment.data_seed"],
+    "treatment_field": "optimizer.state_simulation",
+    "control_value": "none",
+    "treatment_values": ["bf16_roundtrip"]
+  }
 }
 ```
 
@@ -105,3 +111,11 @@ The report directory contains `suite_resolved.json`, `preflight.json`,
 the suite definition, checkout commit/dirty state, data and recipe fingerprints,
 runtime settings, status records, and timestamps. Runtime metadata is never added
 to a scientific recipe fingerprint.
+
+`replication` is optional. When present, it declares field-based pairing rather than
+inferring semantics from run names. Reporting writes descriptive per-treatment `n`,
+mean, sample standard deviation, and paired treatment-minus-control deltas to
+`replication.json` and `benchmark_summary.md`; it does not compute p-values,
+confidence intervals, or significance claims. For CPU-only preflight of a GPU suite,
+use `--preflight-device cpu` with `--preflight-only`; the suite runtime remains the
+authoritative training device.

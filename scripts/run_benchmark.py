@@ -28,6 +28,8 @@ def git_metadata():
 
 def report(suite, report_dir: Path, run_dirs):
     command = [sys.executable, str(ROOT / "scripts" / "compare_runs.py"), "--runs", *map(str, run_dirs), "--vary", *suite["vary"], "--output", str(report_dir)]
+    if "replication" in suite:
+        command += ["--replication-json", json.dumps(suite["replication"], sort_keys=True)]
     result = subprocess.run(command, text=True, capture_output=True)
     if result.returncode:
         raise SuiteError(f"reporting failed: {result.stderr.strip() or result.stdout.strip()}")
@@ -38,6 +40,7 @@ def main(argv=None):
     parser.add_argument("--suite", required=True)
     parser.add_argument("--data-root", required=True, type=Path)
     parser.add_argument("--output-root", required=True, type=Path, help="directory containing run_id artifacts")
+    parser.add_argument("--preflight-device", help="override suite device for preflight-only checks")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--preflight-only", action="store_true")
     mode.add_argument("--report-only", action="store_true")
@@ -50,6 +53,10 @@ def main(argv=None):
         metadata = git_metadata()
         # Report-only intentionally avoids device and data preflight: it only reads
         # immutable run artifacts, but retains the same recipe comparability guard.
+        if args.preflight_device and not args.preflight_only:
+            raise SuiteError("--preflight-device is only valid with --preflight-only")
+        if args.preflight_device:
+            suite = {**suite, "runtime": {**suite["runtime"], "device": args.preflight_device}}
         preflight = preflight_suite(suite, root=ROOT, data_root=args.data_root.expanduser().resolve(), include_runtime=not args.report_only)
         resolved = {"suite": {k: v for k, v in suite.items() if k != "_path"}, "suite_path": suite["_path"], "source": metadata,
                     "data_fingerprint": preflight["data_fingerprint"], "recipe_fingerprints": {entry["run_id"]: cfg["fingerprint"] for entry, cfg in zip(suite["runs"], preflight["configs"])}, "resolved_at": now()}

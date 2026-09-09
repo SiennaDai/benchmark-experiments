@@ -102,4 +102,42 @@ The minimal notebook at `notebooks/kaggle_launcher.ipynb` clones
 `https://github.com/SiennaDai/benchmark-experiments.git`; formal experiments
 should replace its `GIT_REF` with an immutable commit SHA or tag.
 
-See the [Chinese operation manual](docs/OPERATION_MANUAL.zh-CN.md), [protocol](docs/PROTOCOL.md), [validation evidence](docs/VALIDATION.md), [upstream provenance](docs/UPSTREAM.md), and [optimizer extension notes](docs/ADDING_AN_OPTIMIZER.md).
+## Recipe contract
+
+Recipes are strict, complete JSON objects. They do not support inheritance,
+overrides, environment-variable interpolation, or Hydra syntax. The loader
+rejects duplicate or unknown keys, invalid types, unsupported combinations, and
+inconsistent model/token dimensions. Every recipe must contain these groups:
+
+| Group | Contents |
+|---|---|
+| `experiment` | `name`, `protocol_id`, and the model/data/algorithm seeds |
+| `model` | Llama dimensions, vocabulary/sequence length, initialization and normalization settings |
+| `data` | relative `manifest`, train/validation split names, and repeated-epoch policy |
+| `train` | target tokens, micro-batch size, accumulation steps, and gradient clipping |
+| `optimizer` | optimizer name and numerical settings (`lr`, `betas`, `eps`, weight decay, backend flags, state simulation) |
+| `schedule` | cosine/constant schedule, warmup updates, and final learning-rate ratio |
+| `precision` | compute/parameter/gradient dtypes, attention backend, determinism, TF32 and compile flags |
+| `eval` | evaluation interval, token budget, batch size, compute and attention backend |
+| `logging` | logging interval, diagnostics, and the currently inactive `wandb` flag |
+| `checkpoint` | checkpoint interval and whether initial/final checkpoints are saved |
+
+The scientific fingerprint covers the complete recipe. Runtime-only controls
+such as `--data-root`, `--run-dir`, `--resume`, `--to-device`, and
+`--max-wall-seconds` are not recipe fields and do not change that fingerprint.
+The manifest content fingerprint is still checked at startup. Copy an existing
+recipe, change its `experiment.name` and only the intended scientific fields,
+and give the file a descriptive name. Validate it before training:
+
+```bash
+.venv/bin/python src/main.py --recipe recipes/my_recipe.json \
+  --data-root "$PWD" --dry-run --to-device cpu
+.venv/bin/python -m json.tool recipes/my_recipe.json >/dev/null
+```
+
+The smallest practical starting point is `recipes/diagnostic_cpu.json`; use
+`recipes/mini_bf16_adamw.json` for the single-GPU BF16 path. Keep the original
+recipe with the run so that resume and run comparison use exactly the same
+scientific definition.
+
+See the [Chinese operation manual](docs/OPERATION_MANUAL.zh-CN.md), [general Kaggle experiment guide](docs/KAGGLE_EXPERIMENT_GUIDE.zh-CN.md), [protocol](docs/PROTOCOL.md), [validation evidence](docs/VALIDATION.md), [upstream provenance](docs/UPSTREAM.md), and [optimizer extension notes](docs/ADDING_AN_OPTIMIZER.md).

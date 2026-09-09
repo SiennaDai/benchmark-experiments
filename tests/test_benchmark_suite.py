@@ -115,6 +115,16 @@ def test_runtime_controls_are_not_recipe_fingerprint(tmp_path, diagnostic_config
     assert suite["runtime"]["max_wall_seconds"] == 99
 
 
+def test_replication_metadata_is_optional_and_validated(tmp_path, diagnostic_config):
+    a = recipe(tmp_path, diagnostic_config, "a.json")
+    path = suite_file(tmp_path, [{"run_id": "a", "recipe": a.name}])
+    value = json.loads(path.read_text())
+    value["replication"] = {"group_by": ["experiment.seed"], "treatment_field": "optimizer.state_simulation",
+                             "control_value": "none", "treatment_values": ["bf16_roundtrip"]}
+    path.write_text(json.dumps(value))
+    assert load_suite(path)["replication"]["group_by"] == ["experiment.seed"]
+
+
 def test_report_only_uses_existing_artifacts(tmp_path, diagnostic_config, monkeypatch):
     from config.recipe import load_recipe
     source = recipe(tmp_path, diagnostic_config, "report-recipe.json")

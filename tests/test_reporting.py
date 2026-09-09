@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
-from reporting import summarize_run
+import pytest
+from reporting import replication_summary, summarize_run
 
 
 def write_run(path, events, status="completed"):
@@ -21,3 +22,30 @@ def test_missing_metrics_are_null(tmp_path):
     run=tmp_path/"r"; write_run(run,[] ,status="paused_budget")
     summary=summarize_run(run)
     assert summary["initial_validation_nll"] is None and summary["median_update_seconds"] is None
+
+
+def test_replication_summary_pairs_by_declared_fields_and_sample_std():
+    rows = [
+        {"status": "completed", "final_validation_nll": 4.0, "best_validation_nll": 3.5},
+        {"status": "completed", "final_validation_nll": 4.2, "best_validation_nll": 3.7},
+        {"status": "completed", "final_validation_nll": 5.0, "best_validation_nll": 4.5},
+        {"status": "completed", "final_validation_nll": 5.5, "best_validation_nll": 4.8},
+    ]
+    configs = [{"experiment": {"seed": seed, "data_seed": seed + 100}, "optimizer": {"state_simulation": treatment}}
+               for seed, treatment in [(0, "none"), (0, "bf16_roundtrip"), (1, "none"), (1, "bf16_roundtrip")]]
+    result = replication_summary(rows, configs, {"group_by": ["experiment.seed", "experiment.data_seed"],
+        "treatment_field": "optimizer.state_simulation", "control_value": "none", "treatment_values": ["bf16_roundtrip"]})
+    assert result["aggregates"]["bf16_roundtrip"]["n"] == 2
+    assert result["aggregates"]["bf16_roundtrip"]["final_validation_nll"]["mean"] == 4.85
+    assert result["aggregates"]["bf16_roundtrip"]["final_validation_nll"]["sample_std"] == pytest.approx(0.9192388155)
+    assert [p["delta_final_validation_nll"] for p in result["pairs"]] == [pytest.approx(0.2), pytest.approx(0.5)]
+
+
+def test_replication_summary_missing_pair_and_singleton_std():
+    rows = [{"status": "completed", "final_validation_nll": 4.0, "best_validation_nll": 4.0}]
+    configs = [{"experiment": {"seed": 0, "data_seed": 1}, "optimizer": {"state_simulation": "none"}}]
+    result = replication_summary(rows, configs, {"group_by": ["experiment.seed", "experiment.data_seed"],
+        "treatment_field": "optimizer.state_simulation", "control_value": "none", "treatment_values": ["bf16_roundtrip"]})
+    assert result["aggregates"]["none"]["n"] == 1
+    assert result["aggregates"]["none"]["final_validation_nll"]["sample_std"] is None
+    assert result["aggregates"]["bf16_roundtrip"]["paired_delta_final_validation_nll"]["n"] == 0

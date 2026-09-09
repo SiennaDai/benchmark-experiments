@@ -43,7 +43,20 @@ def load_suite(path: str | Path) -> dict:
         value = json.loads(path.read_text(), object_pairs_hook=_pairs)
     except (OSError, json.JSONDecodeError) as exc:
         raise SuiteError(f"invalid suite JSON: {exc}") from exc
-    _require_keys(value, {"name", "runs", "vary", "runtime", "report"}, "suite")
+    if not isinstance(value, dict) or set(value) - {"name", "runs", "vary", "runtime", "report", "replication"}:
+        raise SuiteError("suite contains unknown fields")
+    core = {key: item for key, item in value.items() if key != "replication"}
+    _require_keys(core, {"name", "runs", "vary", "runtime", "report"}, "suite")
+    if "replication" in value:
+        replication = value["replication"]
+        _require_keys(replication, {"group_by", "treatment_field", "control_value", "treatment_values"}, "suite.replication")
+        if (not isinstance(replication["group_by"], list) or not replication["group_by"] or
+                not all(isinstance(x, str) and x for x in replication["group_by"])):
+            raise SuiteError("suite.replication.group_by must be a non-empty array of field paths")
+        if not isinstance(replication["treatment_field"], str) or not replication["treatment_field"]:
+            raise SuiteError("suite.replication.treatment_field must be a field path")
+        if not isinstance(replication["treatment_values"], list) or not replication["treatment_values"]:
+            raise SuiteError("suite.replication.treatment_values must be a non-empty array")
     if not isinstance(value["name"], str) or not value["name"]:
         raise SuiteError("suite.name must be a non-empty string")
     if not isinstance(value["runs"], list) or not value["runs"]:

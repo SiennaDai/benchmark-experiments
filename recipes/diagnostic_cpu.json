@@ -1,1 +1,81 @@
-{"experiment":{"name":"diagnostic_cpu","protocol_id":"synthetic-window-v1","seed":0,"data_seed":1337,"algorithm_seed":2026},"model":{"family":"llama","n_layer":2,"n_embd":128,"n_head":4,"ffn_dim":384,"multiple_of":128,"vocab_size":256,"sequence_length":64,"dropout":0,"bias":false,"tie_embeddings":true,"init_std":0.02,"rmsnorm_eps":0.00001,"rope_theta":10000},"data":{"manifest":"data/diagnostic/manifest.json","train_split":"train","validation_split":"validation","allow_repeated_epochs":true},"train":{"target_tokens":51200,"micro_batch_size":2,"accumulation_steps":4,"grad_clip_norm":1.0},"optimizer":{"name":"torch_adamw","lr":0.001,"betas":[0.9,0.95],"eps":1e-8,"weight_decay":0.1,"fused":false,"foreach":false,"state_simulation":"none"},"schedule":{"name":"cosine","warmup_updates":5,"final_lr_ratio":0.1},"precision":{"compute":"fp32","parameter_dtype":"fp32","gradient_dtype":"fp32","tf32":false,"attention_backend":"math","deterministic":true,"compile":false},"eval":{"every_updates":20,"max_target_tokens":4096,"batch_size":1,"compute":"fp32","attention_backend":"math"},"logging":{"every_updates":1,"diagnostics":true,"wandb":false},"checkpoint":{"every_updates":20,"save_initial":true,"save_final":true}}
+{
+  "experiment": {
+    "name": "diagnostic_cpu",
+    "protocol_id": "synthetic-window-v1",
+    "seed": 0,
+    "data_seed": 1337,
+    "algorithm_seed": 2026
+  },
+  "model": {
+    "family": "llama",
+    "n_layer": 2,
+    "n_embd": 128,
+    "n_head": 4,
+    "ffn_dim": 384,
+    "multiple_of": 128,
+    "vocab_size": 256,
+    "sequence_length": 64,
+    "dropout": 0,
+    "bias": false,
+    "tie_embeddings": true,
+    "init_std": 0.02,
+    "rmsnorm_eps": 1e-05,
+    "rope_theta": 10000
+  },
+  "data": {
+    "manifest": "data/diagnostic/manifest.json",
+    "train_split": "train",
+    "validation_split": "validation",
+    "allow_repeated_epochs": true
+  },
+  "train": {
+    "target_tokens": 51200,
+    "micro_batch_size": 2,
+    "accumulation_steps": 4,
+    "grad_clip_norm": 1.0
+  },
+  "optimizer": {
+    "name": "torch_adamw",
+    "lr": 0.001,
+    "betas": [
+      0.9,
+      0.95
+    ],
+    "eps": 1e-08,
+    "weight_decay": 0.1,
+    "fused": false,
+    "foreach": false,
+    "state_simulation": "none"
+  },
+  "schedule": {
+    "name": "cosine",
+    "warmup_updates": 5,
+    "final_lr_ratio": 0.1
+  },
+  "precision": {
+    "compute": "fp32",
+    "parameter_dtype": "fp32",
+    "gradient_dtype": "fp32",
+    "tf32": false,
+    "attention_backend": "math",
+    "deterministic": true,
+    "compile": false
+  },
+  "eval": {
+    "every_updates": 20,
+    "max_target_tokens": 4096,
+    "batch_size": 1,
+    "compute": "fp32",
+    "attention_backend": "math"
+  },
+  "logging": {
+    "every_updates": 1,
+    "diagnostics": true,
+    "wandb": false
+  },
+  "checkpoint": {
+    "every_updates": 20,
+    "save_initial": true,
+    "save_final": true
+  }
+}

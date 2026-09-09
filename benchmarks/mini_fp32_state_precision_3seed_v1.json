@@ -1,0 +1,20 @@
+{
+  "name": "mini_fp32_state_precision_3seed_v1",
+  "runs": [
+    {"run_id": "reference_adamw_s0", "recipe": "../recipes/mini_fp32_reference_adamw_s0.json"},
+    {"run_id": "reference_adamw_bf16_state_s0", "recipe": "../recipes/mini_fp32_reference_adamw_bf16_state_s0.json"},
+    {"run_id": "reference_adamw_s1", "recipe": "../recipes/mini_fp32_reference_adamw_s1.json"},
+    {"run_id": "reference_adamw_bf16_state_s1", "recipe": "../recipes/mini_fp32_reference_adamw_bf16_state_s1.json"},
+    {"run_id": "reference_adamw_s2", "recipe": "../recipes/mini_fp32_reference_adamw_s2.json"},
+    {"run_id": "reference_adamw_bf16_state_s2", "recipe": "../recipes/mini_fp32_reference_adamw_bf16_state_s2.json"}
+  ],
+  "vary": ["optimizer.state_simulation", "experiment.seed", "experiment.data_seed"],
+  "runtime": {"device": "cuda:0", "max_wall_seconds": 3300},
+  "report": {"output": "reports/mini_fp32_state_precision_3seed_v1"},
+  "replication": {
+    "group_by": ["experiment.seed", "experiment.data_seed"],
+    "treatment_field": "optimizer.state_simulation",
+    "control_value": "none",
+    "treatment_values": ["bf16_roundtrip"]
+  }
+}
