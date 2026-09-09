@@ -113,3 +113,18 @@ def test_runtime_controls_are_not_recipe_fingerprint(tmp_path, diagnostic_config
     assert load_recipe(path)["fingerprint"] == load_recipe(path)["fingerprint"]
     suite = load_suite(suite_file(tmp_path, [{"run_id": "r", "recipe": path.name}], wall=99))
     assert suite["runtime"]["max_wall_seconds"] == 99
+
+
+def test_report_only_uses_existing_artifacts(tmp_path, diagnostic_config, monkeypatch):
+    from config.recipe import load_recipe
+    source = recipe(tmp_path, diagnostic_config, "report-recipe.json")
+    cfg = load_recipe(source)
+    suite_path = suite_file(tmp_path, [{"run_id": "r", "recipe": source.name}])
+    write_artifact(tmp_path / "runs" / "r", cfg)
+    spec = importlib.util.spec_from_file_location("run_benchmark_for_test", ROOT / "scripts" / "run_benchmark.py")
+    runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
+    monkeypatch.setattr(runner, "preflight_suite", lambda suite, **_: {"configs": [cfg], "plans": [], "data_fingerprint": None, "differences": [], "checked_at": "now"})
+    seen = []
+    monkeypatch.setattr(runner, "report", lambda suite, output, runs: seen.extend(runs))
+    assert runner.main(["--suite", str(suite_path), "--data-root", str(tmp_path), "--output-root", str(tmp_path / "runs"), "--report-only"]) == 0
+    assert seen == [tmp_path / "runs" / "r"]
