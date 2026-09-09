@@ -43,5 +43,5 @@ def main():
  else:
   resume=None;run_dir=Path(a.run_dir).resolve() if a.run_dir else ROOT/"runs"/(datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"-"+cfg["fingerprint"][:8]+"-"+uuid.uuid4().hex[:6])
   if run_dir.exists() and any(run_dir.iterdir()):p.error(f"new run directory is not empty: {run_dir}")
- summary=run(cfg,run_dir,resume,a.max_wall_seconds,a.to_device);print(json.dumps(summary,indent=2));return 0 if summary["status"] in {"completed","paused_budget"} else 1
+ summary=run(cfg,run_dir,resume,a.max_wall_seconds,a.to_device);return 0 if summary["status"] in {"completed","paused_budget"} else 1
 if __name__=="__main__":raise SystemExit(main())
