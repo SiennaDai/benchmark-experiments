@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+import argparse,json,subprocess,sys,time
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+p=argparse.ArgumentParser();p.add_argument("--recipe",required=True);p.add_argument("--max-wall-seconds",type=float,default=900);p.add_argument("--output",required=True);p.add_argument("--to-device","--to_device",default="auto",dest="to_device");a=p.parse_args();out=Path(a.output);out.mkdir(parents=True,exist_ok=True);started=time.monotonic();proc=subprocess.run([sys.executable,str(ROOT/"src/main.py"),"--recipe",a.recipe,"--dry-run","--to-device",a.to_device],text=True,capture_output=True);report={"status":"dry_run_only","reason":"capacity measurement requires supported target hardware; no training launched","elapsed_seconds":time.monotonic()-started,"command":proc.args,"exit_code":proc.returncode,"stdout":proc.stdout,"stderr":proc.stderr,"to_device":a.to_device};(out/"profile.json").write_text(json.dumps(report,indent=2)+"\n");print(json.dumps(report,indent=2))

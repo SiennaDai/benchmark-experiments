@@ -5,7 +5,6 @@ compilable (avoids torch complex)
 
 import math
 
-import tiktoken
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -43,6 +42,7 @@ def apply_rotary_emb(q, k, freqs_cis):
     # q, k: (B, T, nh, hs)
     # freq_cis: (T, hs)
     # return: (B, T, nh, hs), (B, T, nh, hs)
+    q_dtype, k_dtype = q.dtype, k.dtype
     q = q.float().reshape(*q.shape[:-1], -1, 2)
     k = k.float().reshape(*k.shape[:-1], -1, 2)
 
@@ -58,7 +58,8 @@ def apply_rotary_emb(q, k, freqs_cis):
     q_out = torch.stack((q_cos, q_sin), dim=-1).reshape(q.shape).flatten(3)
     k_out = torch.stack((k_cos, k_sin), dim=-1).reshape(k.shape).flatten(3)
 
-    return q_out, k_out
+    # RoPE arithmetic stays FP32, but SDPA requires Q/K/V to share dtype.
+    return q_out.to(q_dtype), k_out.to(k_dtype)
 
 
 class RMSNorm(nn.Module):
@@ -162,7 +163,7 @@ class Llama(GPTBase):
         assert config.vocab_size is not None
         assert config.sequence_length is not None
         self.config = config
-        self.tokenizer = tiktoken.get_encoding("gpt2")
+        self.tokenizer = None
 
         # create the token and position embeddings
         self.head_dim = config.n_embd // config.n_head
@@ -243,10 +244,10 @@ class Llama(GPTBase):
 
         # aux_losses is a dict with keys for different auxiliary losses
         aux_losses = {}
-        if targets is not None:
-            # if we are given some desired targets also calculate the loss
+        if targets is not None or get_logits:
+            # Tests/evaluation may request all position logits without targets.
             logits = self.lm_head(x)
-            loss = F.cross_entropy(
+            loss = None if targets is None else F.cross_entropy(
                 logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
             )
             if moe and self.config.moe_routing == "standard_gating":

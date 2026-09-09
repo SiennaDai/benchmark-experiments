@@ -1,0 +1,6 @@
+# Kaggle runtime add-ons. Deliberately do not reinstall torch/torchvision/torchaudio:
+# the Kaggle image supplies a CUDA-matched PyTorch build.
+numpy==2.3.2
+tiktoken==0.11.0
+matplotlib==3.10.5
+bitsandbytes==0.48.1

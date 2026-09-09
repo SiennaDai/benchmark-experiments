@@ -9,7 +9,6 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 
 import math
 
-import tiktoken
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -45,7 +44,10 @@ class CausalSelfAttention(nn.Module):
         self.n_embd = config.n_embd
         self.dropout = config.dropout
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-        self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention")
+        backend = getattr(config, "attention_backend", "auto")
+        self.flash = backend == "auto" and hasattr(
+            torch.nn.functional, "scaled_dot_product_attention"
+        )
         if not self.flash:
             print(
                 "WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0"
@@ -161,7 +163,7 @@ class GPTBase(nn.Module):
         assert config.vocab_size is not None
         assert config.sequence_length is not None
         self.config = config
-        self.tokenizer = tiktoken.get_encoding("gpt2")
+        self.tokenizer = None
 
         self.transformer = nn.ModuleDict(
             dict(

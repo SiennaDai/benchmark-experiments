@@ -1,0 +1,14 @@
+[project]
+name = "lowp-optimizer-bench"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["torch==2.8.0", "numpy==2.3.2", "tiktoken==0.11.0", "matplotlib==3.10.5"]
+
+[project.optional-dependencies]
+test = ["pytest==8.4.1"]
+gpu = ["bitsandbytes==0.48.1"]
+data = ["datasets==4.0.0", "huggingface-hub==0.34.4", "pyarrow==21.0.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
