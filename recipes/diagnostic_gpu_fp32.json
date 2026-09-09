@@ -63,7 +63,7 @@
   },
   "eval": {
     "every_updates": 128,
-    "max_target_tokens": 16384,
+    "max_target_tokens": 8192,
     "batch_size": 4,
     "compute": "fp32",
     "attention_backend": "math"

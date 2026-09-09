@@ -32,7 +32,15 @@ def test_data_root_is_runtime_only(tmp_path, diagnostic_config):
     data_root = tmp_path / "data-root"
     manifest = data_root / relative_manifest
     manifest.parent.mkdir(parents=True)
-    manifest.write_text("{}")
+    manifest.write_text(json.dumps({"schema_version": 1, "dtype": "uint16", "endianness": "little", "max_token_id": 0,
+        "fingerprint": "x", "splits": {name: {"file": "empty.bin", "tokens": 16385, "sha256": ""}
+        for name in ("train", "validation", "test")}}))
+    (manifest.parent / "empty.bin").write_bytes(b"\0\0" * 16385)
+    import hashlib
+    digest = hashlib.sha256(b"\0\0" * 16385).hexdigest()
+    value = json.loads(manifest.read_text())
+    for split in value["splits"].values(): split["sha256"] = digest
+    manifest.write_text(json.dumps(value))
 
     scientific = load_recipe(recipe)["fingerprint"]
     result = subprocess.run(

@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from config.recipe import dump_resolved
-from data.frozen_tokens import DeterministicSampler, FrozenWindows, load_manifest
+from data.frozen_tokens import DeterministicSampler, FrozenWindows, load_manifest, validate_data_capacity
 from experiment_io import EventWriter, atomic_torch_save, environment_snapshot, restore_rng, rng_state, source_snapshot, write_json
 from models.llama import Llama
 from optim.lowp_adapter import make_optimizer, optimizer_state_summary
@@ -82,7 +82,8 @@ def autocast_context(cfg: dict, device: torch.device):
 def evaluate(model, windows, target_tokens: int, batch_size: int, cfg: dict, device: torch.device):
     was_training = model.training; model.eval(); started = time.monotonic()
     n_windows = target_tokens // windows.sequence_length
-    if n_windows > windows.num_windows: raise ValueError("validation split has insufficient windows")
+    if n_windows > windows.num_windows:
+        raise ValueError(f"validation capacity insufficient: available_windows={windows.num_windows}, requested_windows={n_windows}")
     total_nll = 0.0
     for start in range(0, n_windows, batch_size):
         pairs = [windows.window(i) for i in range(start, min(start+batch_size, n_windows))]
@@ -111,7 +112,11 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
     manifest = load_manifest(cfg["data"]["manifest"]); train = FrozenWindows(manifest, cfg["data"]["train_split"], cfg["model"]["sequence_length"]); val = FrozenWindows(manifest, cfg["data"]["validation_split"], cfg["model"]["sequence_length"])
     if manifest["max_token_id"] >= cfg["model"]["vocab_size"]: raise ValueError("data token id exceeds model vocabulary")
     needed = cfg["derived"]["total_updates"] * cfg["train"]["micro_batch_size"] * cfg["train"]["accumulation_steps"]
-    if not cfg["data"]["allow_repeated_epochs"] and needed > train.num_windows: raise ValueError("training split has insufficient windows and repetition is disabled")
+    validate_data_capacity(manifest, sequence_length=cfg["model"]["sequence_length"], train_split=cfg["data"]["train_split"],
+        validation_split=cfg["data"]["validation_split"], eval_target_tokens=cfg["eval"]["max_target_tokens"],
+        train_target_tokens=cfg["train"]["target_tokens"], micro_batch_size=cfg["train"]["micro_batch_size"],
+        accumulation_steps=cfg["train"]["accumulation_steps"], total_updates=cfg["derived"]["total_updates"],
+        allow_repeated_epochs=cfg["data"]["allow_repeated_epochs"])
     model = build_model(cfg, device); groups, records = parameter_groups(model, cfg["optimizer"]["weight_decay"]); optimizer = make_optimizer(cfg["optimizer"]["name"], groups, cfg["optimizer"])
     sampler = DeterministicSampler(train.num_windows, cfg["experiment"]["data_seed"], cfg["data"]["allow_repeated_epochs"])
     completed = processed = segment = 0; prior_elapsed = 0.0
@@ -158,7 +163,7 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
     except Exception as exc:
         status, reason = "failed", f"{type(exc).__name__}: {exc}"; write_json(run_dir/"summary.json", {"status":status,"reason":reason,"completed_updates":completed,"processed_target_tokens":processed}); raise
     elapsed=prior_elapsed+time.monotonic()-started
-    if completed > 0:
+    if completed > 0 or status == "paused_budget":
         ck=_checkpoint(cfg,model,optimizer,sampler,completed,processed,run_id,segment,elapsed,manifest,records); atomic_torch_save(ck,run_dir/"checkpoints/latest.pt")
         if status=="completed" and cfg["checkpoint"]["save_final"]: atomic_torch_save(ck,run_dir/"checkpoints/final.pt")
     state=optimizer_state_summary(optimizer); writer.write("resource",completed,processed,optimizer_state=state,diagnostics=cfg["logging"]["diagnostics"],cuda_peak_allocated=torch.cuda.max_memory_allocated() if device.type=="cuda" else None,cuda_peak_reserved=torch.cuda.max_memory_reserved() if device.type=="cuda" else None)
