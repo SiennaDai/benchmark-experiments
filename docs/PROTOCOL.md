@@ -4,7 +4,7 @@ Recipes are complete JSON objects with no inheritance. Duplicate keys, unknown f
 
 Token files are little-endian uint16 and are checked against manifest byte length and SHA-256 before model allocation. For length `T`, window `j` reads tokens `[jT, jT+T]`; inputs are the first `T`, targets the last `T`. Adjacent targets do not overlap. Training shuffles window IDs with a private NumPy generator; validation/test use ascending IDs. Sampler permutation, offset, epoch and RNG state are checkpointed.
 
-For update `k`, warmup uses `peak*k/W`. Cosine decay uses `u=(k-W)/(N-W)` after warmup and reaches the configured final ratio at update `N`; `W=0` spans updates 1 through N and `N=1` uses peak LR. Gradients are accumulated from token-weighted microbatch losses, checked for finiteness, globally clipped once, and followed by exactly one optimizer step.
+For update `k`, warmup uses `peak*k/W`. Cosine decay uses `u=(k-W)/(N-W)` after warmup and reaches the configured final ratio at update `N`; `W=0` spans updates 1 through N and `N=1` uses peak LR. `N` is `schedule.total_updates` when supplied, otherwise the actual updates derived from `train.target_tokens`; training always terminates at that latter target-token-derived count. Gradients are accumulated from token-weighted microbatch losses, checked for finiteness, globally clipped once, and followed by exactly one optimizer step.
 
 FP32 disables autocast. BF16 requires CUDA BF16 support and never falls back to FP16. Parameters and gradients remain FP32. Strict numerical recipes use math attention, TF32=false and compile=false.
 

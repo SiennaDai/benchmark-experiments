@@ -124,7 +124,7 @@ inconsistent model/token dimensions. Every recipe must contain these groups:
 | `data` | relative `manifest`, train/validation split names, and repeated-epoch policy |
 | `train` | target tokens, micro-batch size, accumulation steps, and gradient clipping |
 | `optimizer` | optimizer name and numerical settings (`lr`, `betas`, `eps`, weight decay, backend flags, state simulation) |
-| `schedule` | cosine/constant schedule, warmup updates, and final learning-rate ratio |
+| `schedule` | cosine/constant schedule, warmup updates, final learning-rate ratio, and optional `total_updates` horizon (defaults to actual training updates) |
 | `precision` | compute/parameter/gradient dtypes, attention backend, determinism, TF32 and compile flags |
 | `eval` | evaluation interval, token budget, batch size, compute and attention backend |
 | `logging` | logging interval, diagnostics, and the currently inactive `wandb` flag |

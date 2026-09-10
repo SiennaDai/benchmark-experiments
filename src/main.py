@@ -31,7 +31,7 @@ def main():
     allow_repeated_epochs=cfg["data"]["allow_repeated_epochs"])
   except (OSError, KeyError, ValueError) as exc:
    capacity_error = str(exc)
- plan={"recipe":str(Path(a.recipe).resolve()),"fingerprint":cfg["fingerprint"],"total_updates":cfg["derived"]["total_updates"],"tokens_per_update":cfg["derived"]["tokens_per_update"],"data_root":str(data_root),"manifest":str(manifest),"manifest_exists":manifest.exists(),"optimizer":cfg["optimizer"]["name"],"compute":cfg["precision"]["compute"],"to_device":a.to_device,"resolved_device":str(device) if device is not None else None}
+ plan={"recipe":str(Path(a.recipe).resolve()),"fingerprint":cfg["fingerprint"],"total_updates":cfg["derived"]["total_updates"],"schedule_total_updates":cfg["derived"]["schedule_total_updates"],"tokens_per_update":cfg["derived"]["tokens_per_update"],"data_root":str(data_root),"manifest":str(manifest),"manifest_exists":manifest.exists(),"optimizer":cfg["optimizer"]["name"],"compute":cfg["precision"]["compute"],"to_device":a.to_device,"resolved_device":str(device) if device is not None else None}
  if resource_reason: plan["unsupported_reason"]=resource_reason
  if capacity_error: plan["capacity_error"] = capacity_error
  if a.dry_run: print(json.dumps(plan,indent=2));return 0 if manifest.exists() and resource_reason is None and capacity_error is None else 2

@@ -25,6 +25,10 @@ FIELDS = {
     "checkpoint": {"every_updates", "save_initial", "save_final"},
 }
 
+# These fields are deliberately opt-in so existing strict recipes retain their
+# exact serialized scientific configuration and therefore their fingerprints.
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}}
+
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     out: dict[str, Any] = {}
@@ -55,7 +59,8 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
     for group, fields in FIELDS.items():
         if not isinstance(cfg[group], dict):
             raise RecipeError(f"{group} must be an object")
-        missing, unknown = fields - set(cfg[group]), set(cfg[group]) - fields
+        optional = OPTIONAL_FIELDS.get(group, set())
+        missing, unknown = fields - set(cfg[group]), set(cfg[group]) - fields - optional
         if missing or unknown:
             raise RecipeError(f"{group} fields mismatch: missing={sorted(missing)}, unknown={sorted(unknown)}")
 
@@ -95,14 +100,19 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
     if s["name"] not in {"cosine", "constant"}:
         raise RecipeError("unsupported schedule.name")
     total_updates = t["target_tokens"] // tokens_per_update
+    schedule_total_updates = s.get("total_updates", total_updates)
+    _require_type(schedule_total_updates, int, "schedule.total_updates")
+    if schedule_total_updates <= 0:
+        raise RecipeError("schedule.total_updates must be positive")
     _require_type(s["warmup_updates"], int, "schedule.warmup_updates")
-    if not 0 <= s["warmup_updates"] < total_updates:
-        raise RecipeError("schedule.warmup_updates must satisfy 0 <= W < total_updates")
+    if not 0 <= s["warmup_updates"] < schedule_total_updates:
+        raise RecipeError("schedule.warmup_updates must satisfy 0 <= W < schedule.total_updates")
     if not 0 <= s["final_lr_ratio"] <= 1:
         raise RecipeError("schedule.final_lr_ratio must be in [0,1]")
     if e["max_target_tokens"] % m["sequence_length"]:
         raise RecipeError("eval.max_target_tokens must be divisible by sequence_length")
-    cfg["derived"] = {"tokens_per_update": tokens_per_update, "total_updates": total_updates, "recipe_path": str(path)}
+    cfg["derived"] = {"tokens_per_update": tokens_per_update, "total_updates": total_updates,
+                      "schedule_total_updates": schedule_total_updates, "recipe_path": str(path)}
     cfg["fingerprint"] = scientific_fingerprint(cfg)
     return cfg
 

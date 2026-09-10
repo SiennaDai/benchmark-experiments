@@ -1,0 +1,10 @@
+{
+  "name": "mini_fp32_state_precision_schedule4096_train1024_s0_v1",
+  "runs": [
+    {"run_id": "reference_adamw_schedule4096_train1024_s0", "recipe": "../recipes/mini_fp32_reference_adamw_schedule4096_train1024_s0.json"},
+    {"run_id": "reference_adamw_bf16_state_schedule4096_train1024_s0", "recipe": "../recipes/mini_fp32_reference_adamw_bf16_state_schedule4096_train1024_s0.json"}
+  ],
+  "vary": ["optimizer.state_simulation"],
+  "runtime": {"device": "cuda:0", "max_wall_seconds": 13200},
+  "report": {"output": "reports/mini_fp32_state_precision_schedule4096_train1024_s0_v1"}
+}

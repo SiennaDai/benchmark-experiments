@@ -70,7 +70,7 @@ def main(argv=None):
         print(f"[check] {len(suite['runs'])}/{len(suite['runs'])} recipes valid")
         print("[check] scientific compatibility PASS")
         if not args.report_only:
-            print("[check] data/resource PASS")
+            print("[check] data capacity PASS")
         run_dirs = [output_root / entry["run_id"] for entry in suite["runs"]]
         statuses = {}
         if args.preflight_only:
