@@ -138,3 +138,17 @@ def test_report_only_uses_existing_artifacts(tmp_path, diagnostic_config, monkey
     monkeypatch.setattr(runner, "report", lambda suite, output, runs: seen.extend(runs))
     assert runner.main(["--suite", str(suite_path), "--data-root", str(tmp_path), "--output-root", str(tmp_path / "runs"), "--report-only"]) == 0
     assert seen == [tmp_path / "runs" / "r"]
+
+
+def test_report_only_can_reuse_external_completed_artifact(tmp_path, diagnostic_config, monkeypatch):
+    from config.recipe import load_recipe
+    source = recipe(tmp_path, diagnostic_config, "reuse-recipe.json")
+    cfg = load_recipe(source)
+    suite_path = suite_file(tmp_path, [{"run_id": "r", "recipe": source.name}])
+    external = tmp_path / "completed_elsewhere"; write_artifact(external, cfg)
+    spec = importlib.util.spec_from_file_location("run_benchmark_reuse_test", ROOT / "scripts" / "run_benchmark.py")
+    runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
+    monkeypatch.setattr(runner, "preflight_suite", lambda suite, **_: {"configs": [cfg], "plans": [], "data_fingerprint": None, "differences": [], "checked_at": "now"})
+    seen = []; monkeypatch.setattr(runner, "report", lambda suite, output, runs: seen.extend(runs))
+    assert runner.main(["--suite", str(suite_path), "--data-root", str(tmp_path), "--output-root", str(tmp_path / "new_runs"), "--reuse-run", f"r={external}", "--report-only"]) == 0
+    assert seen == [external]
