@@ -54,10 +54,29 @@ def rng_state(cuda_used: bool) -> dict:
     return {"python": random.getstate(), "numpy": np.random.get_state(), "torch_cpu": torch.get_rng_state(), "torch_cuda": torch.cuda.get_rng_state_all() if cuda_used else None}
 
 
+def _cpu_byte_rng_state(value, name: str) -> torch.Tensor:
+    """Normalize a serialized RNG state for PyTorch's CPU generator APIs.
+
+    Checkpoints are normally written with CPU RNG-state tensors.  Loading a
+    checkpoint with ``map_location='cuda:0'`` also relocates those tensors,
+    however.  Both ``torch.set_rng_state`` and the per-device calls made by
+    ``torch.cuda.set_rng_state_all`` consume CPU ByteTensors, so normalize
+    every RNG state independently of the checkpoint's load location.
+    """
+    try:
+        return value.detach().to(device="cpu", dtype=torch.uint8).contiguous()
+    except AttributeError as exc:
+        raise TypeError(f"checkpoint RNG state {name} must be a torch tensor") from exc
+
+
 def restore_rng(state: dict) -> None:
-    random.setstate(state["python"]); np.random.set_state(state["numpy"]); torch.set_rng_state(state["torch_cpu"])
-    if state["torch_cuda"] is not None:
-        torch.cuda.set_rng_state_all(state["torch_cuda"])
+    torch_cpu = _cpu_byte_rng_state(state["torch_cpu"], "torch_cpu")
+    torch_cuda = state["torch_cuda"]
+    if torch_cuda is not None:
+        torch_cuda = [_cpu_byte_rng_state(value, f"torch_cuda[{index}]") for index, value in enumerate(torch_cuda)]
+    random.setstate(state["python"]); np.random.set_state(state["numpy"]); torch.set_rng_state(torch_cpu)
+    if torch_cuda is not None:
+        torch.cuda.set_rng_state_all(torch_cuda)
 
 
 def atomic_torch_save(value, path: Path) -> None:
