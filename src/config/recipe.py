@@ -27,7 +27,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -83,14 +83,23 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
     tokens_per_update = t["micro_batch_size"] * m["sequence_length"] * t["accumulation_steps"]
     if t["target_tokens"] % tokens_per_update:
         raise RecipeError(f"train.target_tokens must be divisible by {tokens_per_update}")
-    if o["name"] not in {"torch_adamw", "reference_adamw", "bnb_adamw32", "bnb_adamw8"}:
+    if o["name"] not in {"torch_adamw", "reference_adamw", "reference_muon", "bnb_adamw32", "bnb_adamw8"}:
         raise RecipeError("unsupported optimizer.name")
     if o["state_simulation"] not in {"none", "bf16_roundtrip"}:
         raise RecipeError("unsupported optimizer.state_simulation")
-    if o["state_simulation"] != "none" and o["name"] != "reference_adamw":
-        raise RecipeError("state_simulation is only valid for reference_adamw")
+    if o["state_simulation"] != "none" and o["name"] not in {"reference_adamw", "reference_muon"}:
+        raise RecipeError("state_simulation is only valid for reference_adamw or reference_muon")
     if not isinstance(o["betas"], list) or len(o["betas"]) != 2:
         raise RecipeError("optimizer.betas must be a two-element array")
+    if o["name"] == "reference_muon":
+        for key, default, typ in (("muon_momentum", .95, (int, float)), ("muon_nesterov", True, bool), ("muon_ns_steps", 5, int), ("muon_eps", 1e-7, (int, float))):
+            value = o.get(key, default)
+            _require_type(value, typ, f"optimizer.{key}")
+        if not 0 <= o.get("muon_momentum", .95) < 1 or o.get("muon_ns_steps", 5) <= 0 or o.get("muon_eps", 1e-7) <= 0:
+            raise RecipeError("invalid reference_muon hyperparameter")
+        coefficients = o.get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315])
+        if not isinstance(coefficients, list) or len(coefficients) != 3 or not all(isinstance(x, (int, float)) for x in coefficients):
+            raise RecipeError("optimizer.muon_ns_coefficients must be a three-element numeric array")
     if p["compute"] not in {"fp32", "bf16"} or p["parameter_dtype"] != "fp32" or p["gradient_dtype"] != "fp32":
         raise RecipeError("unsupported precision combination")
     if p["attention_backend"] not in {"math", "auto"} or e["attention_backend"] not in {"math", "auto"}:

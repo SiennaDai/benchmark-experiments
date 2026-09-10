@@ -43,9 +43,9 @@ def load_suite(path: str | Path) -> dict:
         value = json.loads(path.read_text(), object_pairs_hook=_pairs)
     except (OSError, json.JSONDecodeError) as exc:
         raise SuiteError(f"invalid suite JSON: {exc}") from exc
-    if not isinstance(value, dict) or set(value) - {"name", "runs", "vary", "runtime", "report", "replication", "trajectory"}:
+    if not isinstance(value, dict) or set(value) - {"name", "runs", "vary", "runtime", "report", "replication", "trajectory", "optimizer_lowp"}:
         raise SuiteError("suite contains unknown fields")
-    core = {key: item for key, item in value.items() if key not in {"replication", "trajectory"}}
+    core = {key: item for key, item in value.items() if key not in {"replication", "trajectory", "optimizer_lowp"}}
     _require_keys(core, {"name", "runs", "vary", "runtime", "report"}, "suite")
     if "replication" in value:
         replication = value["replication"]
@@ -71,6 +71,10 @@ def load_suite(path: str | Path) -> dict:
                 not all(isinstance(x, int) and not isinstance(x, bool) and x > 0 for x in trajectory["landmark_updates"]) or
                 trajectory["landmark_updates"] != sorted(set(trajectory["landmark_updates"]))):
             raise SuiteError("suite.trajectory.landmark_updates must be sorted unique positive integers")
+    if "optimizer_lowp" in value:
+        _require_keys(value["optimizer_lowp"], {"optimizer_field", "state_field", "fp32_value", "lowp_value", "interaction_order"}, "suite.optimizer_lowp")
+        if not all(isinstance(value["optimizer_lowp"][k], str) and value["optimizer_lowp"][k] for k in ("optimizer_field", "state_field", "fp32_value", "lowp_value")) or not isinstance(value["optimizer_lowp"]["interaction_order"], list) or len(value["optimizer_lowp"]["interaction_order"]) != 2:
+            raise SuiteError("suite.optimizer_lowp is malformed")
     if not isinstance(value["name"], str) or not value["name"]:
         raise SuiteError("suite.name must be a non-empty string")
     if not isinstance(value["runs"], list) or not value["runs"]:

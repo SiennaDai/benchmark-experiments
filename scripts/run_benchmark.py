@@ -32,6 +32,8 @@ def report(suite, report_dir: Path, run_dirs):
         command += ["--replication-json", json.dumps(suite["replication"], sort_keys=True)]
     if "trajectory" in suite:
         command += ["--trajectory-json", json.dumps(suite["trajectory"], sort_keys=True)]
+    if "optimizer_lowp" in suite:
+        command += ["--optimizer-lowp-json", json.dumps(suite["optimizer_lowp"], sort_keys=True)]
     result = subprocess.run(command, text=True, capture_output=True)
     if result.returncode:
         raise SuiteError(f"reporting failed: {result.stderr.strip() or result.stdout.strip()}")
@@ -42,6 +44,7 @@ def main(argv=None):
     parser.add_argument("--suite", required=True)
     parser.add_argument("--data-root", required=True, type=Path)
     parser.add_argument("--output-root", required=True, type=Path, help="directory containing run_id artifacts")
+    parser.add_argument("--reuse-run", action="append", default=[], metavar="RUN_ID=DIR", help="read an immutable completed artifact from DIR instead of output-root/RUN_ID")
     parser.add_argument("--preflight-device", help="override suite device for preflight-only checks")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--preflight-only", action="store_true")
@@ -53,6 +56,15 @@ def main(argv=None):
         report_dir = Path(suite["report"]["output"]).expanduser()
         report_dir = (ROOT / report_dir).resolve() if not report_dir.is_absolute() else report_dir.resolve()
         metadata = git_metadata()
+        external = {}
+        for item in args.reuse_run:
+            run_id, sep, directory = item.partition("=")
+            if not sep or not run_id or not directory or run_id in external:
+                raise SuiteError("--reuse-run must be unique RUN_ID=DIR")
+            external[run_id] = Path(directory).expanduser().resolve()
+        declared = {entry["run_id"] for entry in suite["runs"]}
+        if set(external) - declared:
+            raise SuiteError("--reuse-run includes a run ID not declared by the suite")
         # Report-only intentionally avoids device and data preflight: it only reads
         # immutable run artifacts, but retains the same recipe comparability guard.
         if args.preflight_device and not args.preflight_only:
@@ -71,7 +83,7 @@ def main(argv=None):
         print("[check] scientific compatibility PASS")
         if not args.report_only:
             print("[check] data capacity PASS")
-        run_dirs = [output_root / entry["run_id"] for entry in suite["runs"]]
+        run_dirs = [external.get(entry["run_id"], output_root / entry["run_id"]) for entry in suite["runs"]]
         statuses = {}
         if args.preflight_only:
             for entry, directory, cfg in zip(suite["runs"], run_dirs, preflight["configs"]):
@@ -96,6 +108,8 @@ def main(argv=None):
             initial.append((status, reason))
             if status not in {"new", "completed", "paused"}:
                 raise SuiteError(f"cannot run {entry['run_id']}: {status}: {reason or ''}")
+            if entry["run_id"] in external and status != "completed":
+                raise SuiteError(f"reused artifact must be completed: {entry['run_id']}: {status}: {reason or ''}")
         for number, (entry, directory, (status, reason)) in enumerate(zip(suite["runs"], run_dirs, initial), 1):
             print(f"[run {number}/{len(suite['runs'])}] {entry['run_id']}")
             if status == "completed":

@@ -207,3 +207,23 @@ def paired_trajectory_summary(rows, configs, spec):
             pairs.append({"group": list(key), "treatment": value, "landmarks": points})
     return {"group_by": group_by, "treatment_field": treatment, "control_value": control,
             "landmark_updates": landmarks, "pairs": pairs}
+
+
+def optimizer_lowp_summary(rows, configs, spec):
+    """Descriptive lowp-minus-FP32 deltas, grouped independently per optimizer."""
+    by_optimizer = {}
+    for row, cfg in zip(rows, configs):
+        key = _path_value(cfg, spec["optimizer_field"])
+        by_optimizer.setdefault(key, {})[_path_value(cfg, spec["state_field"])] = row
+    values = []
+    for optimizer, group in by_optimizer.items():
+        fp32, lowp = group.get(spec["fp32_value"]), group.get(spec["lowp_value"])
+        delta = None if not fp32 or not lowp or fp32.get("final_validation_nll") is None or lowp.get("final_validation_nll") is None else lowp["final_validation_nll"] - fp32["final_validation_nll"]
+        values.append({"optimizer": optimizer, "fp32_final_validation_nll": fp32.get("final_validation_nll") if fp32 else None, "lowp_final_validation_nll": lowp.get("final_validation_nll") if lowp else None, "lowp_minus_fp32_final_validation_nll": delta})
+    values.sort(key=lambda x: x["optimizer"])
+    deltas = {v["optimizer"]: v["lowp_minus_fp32_final_validation_nll"] for v in values}
+    interaction = None
+    if spec["interaction_order"][0] in deltas and spec["interaction_order"][1] in deltas and deltas[spec["interaction_order"][0]] is not None and deltas[spec["interaction_order"][1]] is not None:
+        interaction = deltas[spec["interaction_order"][0]] - deltas[spec["interaction_order"][1]]
+    return {"optimizer_field": spec["optimizer_field"], "state_field": spec["state_field"], "values": values,
+            "interaction_order": spec["interaction_order"], "sensitivity_difference": interaction}

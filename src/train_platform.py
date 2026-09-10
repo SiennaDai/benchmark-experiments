@@ -60,13 +60,23 @@ def build_model(cfg: dict, device: torch.device) -> Llama:
     return model
 
 
-def parameter_groups(model, weight_decay: float):
-    seen, decay, no_decay, records = set(), [], [], []
+def parameter_groups(model, weight_decay: float, optimizer_name="reference_adamw"):
+    seen, decay, no_decay, muon, auxiliary, records = set(), [], [], [], [], []
     for name, p in model.named_parameters():
         if id(p) in seen: continue
         seen.add(id(p)); use_decay = p.ndim >= 2
-        (decay if use_decay else no_decay).append(p)
-        records.append({"name": name, "group": "decay" if use_decay else "no_decay", "shape": list(p.shape), "numel": p.numel(), "dtype": str(p.dtype)})
+        # Muon is deliberately limited to internal hidden Linear weights.  The
+        # tied embedding/lm_head is recognized by module path and kept auxiliary.
+        eligible = optimizer_name == "reference_muon" and p.ndim == 2 and name.startswith("transformer.h.")
+        if optimizer_name == "reference_muon":
+            (muon if eligible else auxiliary).append(p)
+            group = "muon" if eligible else "auxiliary_adamw"
+        else:
+            (decay if use_decay else no_decay).append(p); group = "decay" if use_decay else "no_decay"
+        records.append({"name": name, "group": group, "shape": list(p.shape), "numel": p.numel(), "dtype": str(p.dtype)})
+    if optimizer_name == "reference_muon":
+        return [{"params": muon, "weight_decay": weight_decay, "optimizer_group": "muon"},
+                {"params": auxiliary, "weight_decay": weight_decay, "optimizer_group": "auxiliary_adamw"}], records
     return [{"params": decay, "weight_decay": weight_decay}, {"params": no_decay, "weight_decay": 0.0}], records
 
 
@@ -117,7 +127,7 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
         train_target_tokens=cfg["train"]["target_tokens"], micro_batch_size=cfg["train"]["micro_batch_size"],
         accumulation_steps=cfg["train"]["accumulation_steps"], total_updates=cfg["derived"]["total_updates"],
         allow_repeated_epochs=cfg["data"]["allow_repeated_epochs"])
-    model = build_model(cfg, device); groups, records = parameter_groups(model, cfg["optimizer"]["weight_decay"]); optimizer = make_optimizer(cfg["optimizer"]["name"], groups, cfg["optimizer"])
+    model = build_model(cfg, device); groups, records = parameter_groups(model, cfg["optimizer"]["weight_decay"], cfg["optimizer"]["name"]); optimizer = make_optimizer(cfg["optimizer"]["name"], groups, cfg["optimizer"])
     sampler = DeterministicSampler(train.num_windows, cfg["experiment"]["data_seed"], cfg["data"]["allow_repeated_epochs"])
     completed = processed = segment = 0; prior_elapsed = 0.0
     run_id = run_dir.name
@@ -128,7 +138,9 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
         completed, processed, segment, prior_elapsed = ckpt["completed_updates"], ckpt["processed_target_tokens"], ckpt["next_segment_id"], ckpt["elapsed_seconds"]
         restore_rng(ckpt["rng"]); run_id = ckpt["run_id"]
     else:
-        dump_resolved(cfg, run_dir/"resolved_config.json"); write_json(run_dir/"environment.json", environment_snapshot()); write_json(run_dir/"source.json", source_snapshot(root)); write_json(run_dir/"data_manifest.json", {k:v for k,v in manifest.items() if k != "_path"}); write_json(run_dir/"parameters.json", records); write_json(run_dir/"precision.json", {**cfg["precision"], "to_device": to_device, "device": str(device)})
+        state_policy = ("exp_avg, exp_avg_sq" if cfg["optimizer"]["name"] == "reference_adamw" else "muon_momentum (Muon group only); auxiliary AdamW exp_avg, exp_avg_sq remain FP32" if cfg["optimizer"]["name"] == "reference_muon" else "optimizer-specific")
+        grouping = {"muon_parameters": sum(r["numel"] for r in records if r["group"] == "muon"), "auxiliary_adamw_parameters": sum(r["numel"] for r in records if r["group"] == "auxiliary_adamw"), "muon_tensor_count": sum(r["group"] == "muon" for r in records), "auxiliary_adamw_tensor_count": sum(r["group"] == "auxiliary_adamw" for r in records)}
+        dump_resolved(cfg, run_dir/"resolved_config.json"); write_json(run_dir/"environment.json", environment_snapshot()); write_json(run_dir/"source.json", source_snapshot(root)); write_json(run_dir/"data_manifest.json", {k:v for k,v in manifest.items() if k != "_path"}); write_json(run_dir/"parameters.json", records); write_json(run_dir/"precision.json", {**cfg["precision"], "to_device": to_device, "device": str(device), "optimizer_state_simulation": cfg["optimizer"]["state_simulation"], "roundtrip_state_policy": state_policy, "parameter_grouping": grouping})
     writer = EventWriter(run_dir/"metrics.jsonl", run_id, segment); started = time.monotonic(); status, reason = "completed", None
     print(f"[run] {run_id} | {cfg['optimizer']['name']} | {device} | {cfg['precision']['compute']} | {cfg['derived']['total_updates']} updates | schedule horizon {cfg['derived']['schedule_total_updates']} | {cfg['train']['target_tokens']} tokens")
     writer.write("lifecycle", completed, processed, phase="resume" if resume else "start", wall_clock_elapsed_seconds=prior_elapsed)

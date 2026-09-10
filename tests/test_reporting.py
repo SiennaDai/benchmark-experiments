@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import pytest
-from reporting import replication_summary, summarize_run
+from reporting import optimizer_lowp_summary, replication_summary, summarize_run
 
 
 def write_run(path, events, status="completed"):
@@ -49,3 +49,11 @@ def test_replication_summary_missing_pair_and_singleton_std():
     assert result["aggregates"]["none"]["n"] == 1
     assert result["aggregates"]["none"]["final_validation_nll"]["sample_std"] is None
     assert result["aggregates"]["bf16_roundtrip"]["paired_delta_final_validation_nll"]["n"] == 0
+
+
+def test_optimizer_lowp_delta_and_sensitivity_sign():
+    rows = [{"final_validation_nll": 5.0}, {"final_validation_nll": 5.2}, {"final_validation_nll": 4.0}, {"final_validation_nll": 4.1}]
+    cfgs = [{"optimizer": {"name": n, "state_simulation": s}} for n, s in [("reference_adamw", "none"), ("reference_adamw", "bf16_roundtrip"), ("reference_muon", "none"), ("reference_muon", "bf16_roundtrip")]]
+    value = optimizer_lowp_summary(rows, cfgs, {"optimizer_field": "optimizer.name", "state_field": "optimizer.state_simulation", "fp32_value": "none", "lowp_value": "bf16_roundtrip", "interaction_order": ["reference_adamw", "reference_muon"]})
+    assert value["values"][0]["lowp_minus_fp32_final_validation_nll"] == pytest.approx(.2)
+    assert value["sensitivity_difference"] == pytest.approx(.1)
