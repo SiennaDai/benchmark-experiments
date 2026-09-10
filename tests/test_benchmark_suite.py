@@ -149,6 +149,7 @@ def test_report_only_can_reuse_external_completed_artifact(tmp_path, diagnostic_
     spec = importlib.util.spec_from_file_location("run_benchmark_reuse_test", ROOT / "scripts" / "run_benchmark.py")
     runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
     monkeypatch.setattr(runner, "preflight_suite", lambda suite, **_: {"configs": [cfg], "plans": [], "data_fingerprint": None, "differences": [], "checked_at": "now"})
+    monkeypatch.setattr(runner, "external_provenance", lambda directory, commit: "ancestor")
     seen = []; monkeypatch.setattr(runner, "report", lambda suite, output, runs: seen.extend(runs))
     assert runner.main(["--suite", str(suite_path), "--data-root", str(tmp_path), "--output-root", str(tmp_path / "new_runs"), "--reuse-run", f"r={external}", "--report-only"]) == 0
     assert seen == [external]

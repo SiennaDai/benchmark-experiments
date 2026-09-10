@@ -26,6 +26,20 @@ def git_metadata():
     return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain"))}
 
 
+def external_provenance(directory: Path, current_commit: str | None):
+    """Accept only an immutable artifact made by an ancestor source revision."""
+    try:
+        source = json.loads((directory / "source.json").read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SuiteError(f"reused artifact has unreadable source provenance: {directory}: {exc}") from exc
+    commit = source.get("upstream_commit")
+    if not isinstance(commit, str) or not commit:
+        raise SuiteError(f"reused artifact lacks upstream_commit provenance: {directory}")
+    if not current_commit or subprocess.run(["git", "merge-base", "--is-ancestor", commit, current_commit], cwd=ROOT).returncode:
+        raise SuiteError(f"reused artifact source commit is not an ancestor of current HEAD: {commit}")
+    return commit
+
+
 def report(suite, report_dir: Path, run_dirs):
     command = [sys.executable, str(ROOT / "scripts" / "compare_runs.py"), "--runs", *map(str, run_dirs), "--vary", *suite["vary"], "--output", str(report_dir)]
     if "replication" in suite:
@@ -65,6 +79,7 @@ def main(argv=None):
         declared = {entry["run_id"] for entry in suite["runs"]}
         if set(external) - declared:
             raise SuiteError("--reuse-run includes a run ID not declared by the suite")
+        external_commits = {run_id: external_provenance(directory, metadata["commit"]) for run_id, directory in external.items()}
         # Report-only intentionally avoids device and data preflight: it only reads
         # immutable run artifacts, but retains the same recipe comparability guard.
         if args.preflight_device and not args.preflight_only:
@@ -87,14 +102,14 @@ def main(argv=None):
         statuses = {}
         if args.preflight_only:
             for entry, directory, cfg in zip(suite["runs"], run_dirs, preflight["configs"]):
-                status, reason = artifact_status(directory, cfg, preflight["data_fingerprint"], metadata["commit"])
-                statuses[entry["run_id"]] = {"status": status, "reason": reason, "run_dir": str(directory)}
+                status, reason = artifact_status(directory, cfg, preflight["data_fingerprint"], None if entry["run_id"] in external else metadata["commit"])
+                statuses[entry["run_id"]] = {"status": status, "reason": reason, "run_dir": str(directory), "source_commit": external_commits.get(entry["run_id"])}
             write_json(report_dir / "run_status.json", {"updated_at": now(), "runs": statuses})
             return 0
         if args.report_only:
             for entry, directory, cfg in zip(suite["runs"], run_dirs, preflight["configs"]):
                 status, reason = artifact_status(directory, cfg, None, None)
-                statuses[entry["run_id"]] = {"status": status, "reason": reason, "run_dir": str(directory)}
+                statuses[entry["run_id"]] = {"status": status, "reason": reason, "run_dir": str(directory), "source_commit": external_commits.get(entry["run_id"])}
                 if status not in {"completed", "paused"}:
                     raise SuiteError(f"report-only requires readable run artifacts: {entry['run_id']}: {status}: {reason or ''}")
             write_json(report_dir / "run_status.json", {"updated_at": now(), "runs": statuses})
@@ -104,7 +119,7 @@ def main(argv=None):
         # Every status is established before the first training process starts.
         initial = []
         for entry, directory, cfg in zip(suite["runs"], run_dirs, preflight["configs"]):
-            status, reason = artifact_status(directory, cfg, preflight["data_fingerprint"], metadata["commit"])
+            status, reason = artifact_status(directory, cfg, preflight["data_fingerprint"], None if entry["run_id"] in external else metadata["commit"])
             initial.append((status, reason))
             if status not in {"new", "completed", "paused"}:
                 raise SuiteError(f"cannot run {entry['run_id']}: {status}: {reason or ''}")
@@ -128,7 +143,7 @@ def main(argv=None):
                 if result.returncode not in {0}:
                     raise SuiteError(f"run {entry['run_id']} exited with status {result.returncode}")
             final, final_reason = artifact_status(directory, preflight["configs"][number - 1], preflight["data_fingerprint"], metadata["commit"])
-            statuses[entry["run_id"]] = {"status": final, "reason": final_reason, "run_dir": str(directory)}
+            statuses[entry["run_id"]] = {"status": final, "reason": final_reason, "run_dir": str(directory), "source_commit": external_commits.get(entry["run_id"])}
             write_json(report_dir / "run_status.json", {"updated_at": now(), "runs": statuses})
             if final == "failed":
                 raise SuiteError(f"run {entry['run_id']} failed: {final_reason or ''}")
