@@ -174,3 +174,36 @@ def replication_summary(rows, configs, spec):
             "sample_std": statistics.stdev(deltas) if len(deltas) > 1 else None}
     return {"group_by": group_by, "treatment_field": treatment, "control_value": control,
             "aggregates": aggregates, "pairs": pairs}
+
+
+def paired_trajectory_summary(rows, configs, spec):
+    """Return observed paired validation-NLL deltas at declared update landmarks.
+
+    Missing evaluation events are represented explicitly as null values; this
+    function never interpolates a trajectory or interprets its sign.
+    """
+    group_by, treatment = spec["group_by"], spec["treatment_field"]
+    control, landmarks = spec["control_value"], spec["landmark_updates"]
+    groups = {}
+    for row, cfg in zip(rows, configs):
+        key = tuple(_path_value(cfg, field) for field in group_by)
+        groups.setdefault(key, {})[_path_value(cfg, treatment)] = row
+    pairs = []
+    for key, group in groups.items():
+        if control not in group:
+            continue
+        control_points = {event.get("completed_updates"): event.get("nll") for event in group[control]["events"]["eval"]}
+        for value in spec["treatment_values"]:
+            if value not in group:
+                continue
+            treatment_points = {event.get("completed_updates"): event.get("nll") for event in group[value]["events"]["eval"]}
+            points = []
+            for update in landmarks:
+                control_nll, treatment_nll = control_points.get(update), treatment_points.get(update)
+                points.append({"update": update, "control_validation_nll": control_nll,
+                               "treatment_validation_nll": treatment_nll,
+                               "paired_delta_validation_nll": treatment_nll - control_nll
+                               if control_nll is not None and treatment_nll is not None else None})
+            pairs.append({"group": list(key), "treatment": value, "landmarks": points})
+    return {"group_by": group_by, "treatment_field": treatment, "control_value": control,
+            "landmark_updates": landmarks, "pairs": pairs}

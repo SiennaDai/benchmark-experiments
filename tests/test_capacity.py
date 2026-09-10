@@ -40,6 +40,16 @@ def test_repeated_epochs_only_affect_training(tmp_path):
         validate_data_capacity(manifest, **args_for(manifest, 16384, repeated=True))
 
 
+def test_4x_training_capacity_boundary_without_repeated_epochs():
+    manifest = {"splits": {name: {"tokens": 65537} for name in ("validation", "test")}}
+    manifest["splits"]["train"] = {"tokens": 33554433}
+    result = validate_data_capacity(manifest, sequence_length=256, train_split="train", validation_split="validation",
+                                    eval_target_tokens=65536, train_target_tokens=33554432,
+                                    micro_batch_size=4, accumulation_steps=8, total_updates=4096,
+                                    allow_repeated_epochs=False, test_split="test", test_target_tokens=65536)
+    assert result["train"]["required_windows"] == result["train"]["available_windows"] == 131072
+
+
 def test_gpu_recipe_dry_run_rejects_small_synthetic_validation(tmp_path):
     output = tmp_path / "data" / "diagnostic"
     subprocess.run([sys.executable, "scripts/prepare_data.py", "--kind", "synthetic", "--output", str(output)], check=True)

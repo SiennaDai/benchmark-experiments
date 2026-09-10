@@ -43,9 +43,9 @@ def load_suite(path: str | Path) -> dict:
         value = json.loads(path.read_text(), object_pairs_hook=_pairs)
     except (OSError, json.JSONDecodeError) as exc:
         raise SuiteError(f"invalid suite JSON: {exc}") from exc
-    if not isinstance(value, dict) or set(value) - {"name", "runs", "vary", "runtime", "report", "replication"}:
+    if not isinstance(value, dict) or set(value) - {"name", "runs", "vary", "runtime", "report", "replication", "trajectory"}:
         raise SuiteError("suite contains unknown fields")
-    core = {key: item for key, item in value.items() if key != "replication"}
+    core = {key: item for key, item in value.items() if key not in {"replication", "trajectory"}}
     _require_keys(core, {"name", "runs", "vary", "runtime", "report"}, "suite")
     if "replication" in value:
         replication = value["replication"]
@@ -57,6 +57,20 @@ def load_suite(path: str | Path) -> dict:
             raise SuiteError("suite.replication.treatment_field must be a field path")
         if not isinstance(replication["treatment_values"], list) or not replication["treatment_values"]:
             raise SuiteError("suite.replication.treatment_values must be a non-empty array")
+    if "trajectory" in value:
+        trajectory = value["trajectory"]
+        _require_keys(trajectory, {"group_by", "treatment_field", "control_value", "treatment_values", "landmark_updates"}, "suite.trajectory")
+        if (not isinstance(trajectory["group_by"], list) or not trajectory["group_by"] or
+                not all(isinstance(x, str) and x for x in trajectory["group_by"])):
+            raise SuiteError("suite.trajectory.group_by must be a non-empty array of field paths")
+        if not isinstance(trajectory["treatment_field"], str) or not trajectory["treatment_field"]:
+            raise SuiteError("suite.trajectory.treatment_field must be a field path")
+        if not isinstance(trajectory["treatment_values"], list) or not trajectory["treatment_values"]:
+            raise SuiteError("suite.trajectory.treatment_values must be a non-empty array")
+        if (not isinstance(trajectory["landmark_updates"], list) or not trajectory["landmark_updates"] or
+                not all(isinstance(x, int) and not isinstance(x, bool) and x > 0 for x in trajectory["landmark_updates"]) or
+                trajectory["landmark_updates"] != sorted(set(trajectory["landmark_updates"]))):
+            raise SuiteError("suite.trajectory.landmark_updates must be sorted unique positive integers")
     if not isinstance(value["name"], str) or not value["name"]:
         raise SuiteError("suite.name must be a non-empty string")
     if not isinstance(value["runs"], list) or not value["runs"]:

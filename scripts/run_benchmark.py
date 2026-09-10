@@ -30,6 +30,8 @@ def report(suite, report_dir: Path, run_dirs):
     command = [sys.executable, str(ROOT / "scripts" / "compare_runs.py"), "--runs", *map(str, run_dirs), "--vary", *suite["vary"], "--output", str(report_dir)]
     if "replication" in suite:
         command += ["--replication-json", json.dumps(suite["replication"], sort_keys=True)]
+    if "trajectory" in suite:
+        command += ["--trajectory-json", json.dumps(suite["trajectory"], sort_keys=True)]
     result = subprocess.run(command, text=True, capture_output=True)
     if result.returncode:
         raise SuiteError(f"reporting failed: {result.stderr.strip() or result.stdout.strip()}")

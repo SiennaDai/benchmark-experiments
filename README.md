@@ -27,6 +27,14 @@ Commands run from the repository root. Synthetic data is offline and determinist
 
 The last command uses the frozen revision and selects only complete files within the 512 MiB source budget. If the service or local cache is unavailable it writes the plan and exits with the reason; it never silently exceeds the budget.
 
+The paired 4× state-persistence suite needs a distinct frozen window (not repeated epochs). Resolve its pinned plan first, then generate it; the manifest must travel with the Kaggle input data:
+
+```bash
+.venv/bin/python scripts/prepare_data.py --kind slimpajama --output data/slimpajama_4x --plan-only --source-revision b5f90f419b7489cdba26fdbc8c022fcb5562f968 --source-max-bytes 2147483648 --train-tokens 33554433 --validation-tokens 65537 --test-tokens 65537
+.venv/bin/python scripts/prepare_data.py --kind slimpajama --output data/slimpajama_4x --source-revision b5f90f419b7489cdba26fdbc8c022fcb5562f968 --source-max-bytes 2147483648 --train-tokens 33554433 --validation-tokens 65537 --test-tokens 65537
+MPLCONFIGDIR=/tmp/matplotlib .venv/bin/python scripts/run_benchmark.py --suite benchmarks/mini_fp32_state_precision_4x_s0_v1.json --data-root . --output-root runs --preflight-only --preflight-device cpu
+```
+
 Relative manifest paths in recipes are resolved below the runtime-only `--data-root`
 (the repository root by default). The selected mount path is not part of the
 scientific fingerprint, while the manifest's content fingerprint is still checked

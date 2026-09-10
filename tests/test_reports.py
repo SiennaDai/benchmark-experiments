@@ -1,5 +1,20 @@
 import json,subprocess,sys
 from pathlib import Path
+from reporting import paired_trajectory_summary
+
+
+def test_paired_trajectory_landmarks_sign_and_missing_events():
+    base = {"experiment": {"seed": 0}, "optimizer": {"state_simulation": "none"}}
+    treatment = {"experiment": {"seed": 0}, "optimizer": {"state_simulation": "low_precision"}}
+    control_row = {"events": {"eval": [{"completed_updates": 10, "nll": 2.0}, {"completed_updates": 20, "nll": 1.5}]}}
+    treatment_row = {"events": {"eval": [{"completed_updates": 10, "nll": 1.75}, {"completed_updates": 30, "nll": 1.0}]}}
+    result = paired_trajectory_summary([control_row, treatment_row], [base, treatment], {
+        "group_by": ["experiment.seed"], "treatment_field": "optimizer.state_simulation",
+        "control_value": "none", "treatment_values": ["low_precision"], "landmark_updates": [10, 20, 30]})
+    points = result["pairs"][0]["landmarks"]
+    assert points[0]["paired_delta_validation_nll"] == -0.25
+    assert points[1]["paired_delta_validation_nll"] is None
+    assert points[2]["paired_delta_validation_nll"] is None
 def test_compare_refuses_mismatch(tmp_path):
     runs=[]
     for i in range(2):

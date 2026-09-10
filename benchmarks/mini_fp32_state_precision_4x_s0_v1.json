@@ -1,0 +1,17 @@
+{
+  "name": "mini_fp32_state_precision_4x_s0_v1",
+  "runs": [
+    {"run_id": "reference_adamw_4x_s0", "recipe": "../recipes/mini_fp32_reference_adamw_4x_s0.json"},
+    {"run_id": "reference_adamw_bf16_state_4x_s0", "recipe": "../recipes/mini_fp32_reference_adamw_bf16_state_4x_s0.json"}
+  ],
+  "vary": ["optimizer.state_simulation"],
+  "runtime": {"device": "cuda:0", "max_wall_seconds": 13200},
+  "report": {"output": "reports/mini_fp32_state_precision_4x_s0_v1"},
+  "trajectory": {
+    "group_by": ["experiment.seed", "experiment.data_seed", "experiment.algorithm_seed"],
+    "treatment_field": "optimizer.state_simulation",
+    "control_value": "none",
+    "treatment_values": ["bf16_roundtrip"],
+    "landmark_updates": [1024, 2048, 3072, 4096]
+  }
+}
