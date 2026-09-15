@@ -176,6 +176,8 @@ def artifact_status(run_dir: Path, cfg: dict, data_fingerprint: str | None, sour
         return "completed", None
     if status == "failed":
         return "failed", summary.get("reason") or "training failed"
+    if status == "diverged_nonfinite":
+        return "diverged_nonfinite", summary.get("reason") or "numerical divergence"
     if status in {"paused_budget", "interrupted"}:
         checkpoint = run_dir / "checkpoints" / "latest.pt"
         if not checkpoint.exists():

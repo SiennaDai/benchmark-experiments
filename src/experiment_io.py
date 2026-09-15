@@ -18,7 +18,10 @@ import torch
 def write_json(path: str | Path, value) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True, default=str) + "\n")
+    # Artifacts are deliberately strict JSON.  Callers must turn exceptional
+    # floating-point outcomes into explicit, finite metadata rather than
+    # serializing NaN/Infinity tokens.
+    path.write_text(json.dumps(value, indent=2, sort_keys=True, default=str, allow_nan=False) + "\n")
 
 
 def environment_snapshot() -> dict:

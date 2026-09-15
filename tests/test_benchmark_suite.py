@@ -100,6 +100,8 @@ def test_artifact_states_and_resume_guards(tmp_path, diagnostic_config):
     assert artifact_status(tmp_path / "paused", cfg, "data", "commit")[0] == "paused"
     write_artifact(tmp_path / "failed", cfg, "failed")
     assert artifact_status(tmp_path / "failed", cfg, "data", "commit")[0] == "failed"
+    write_artifact(tmp_path / "diverged", cfg, "diverged_nonfinite", checkpoint=False)
+    assert artifact_status(tmp_path / "diverged", cfg, "data", "commit")[0] == "diverged_nonfinite"
     write_artifact(tmp_path / "missing", cfg, "paused_budget", checkpoint=False)
     assert artifact_status(tmp_path / "missing", cfg, "data", "commit")[0] == "missing_checkpoint"
     wrong = copy.deepcopy(cfg); wrong["fingerprint"] = "wrong"

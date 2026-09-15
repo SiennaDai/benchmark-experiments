@@ -110,7 +110,7 @@ def main(argv=None):
             for entry, directory, cfg in zip(suite["runs"], run_dirs, preflight["configs"]):
                 status, reason = artifact_status(directory, cfg, None, None)
                 statuses[entry["run_id"]] = {"status": status, "reason": reason, "run_dir": str(directory), "source_commit": external_commits.get(entry["run_id"])}
-                if status not in {"completed", "paused"}:
+                if status not in {"completed", "paused", "diverged_nonfinite"}:
                     raise SuiteError(f"report-only requires readable run artifacts: {entry['run_id']}: {status}: {reason or ''}")
             write_json(report_dir / "run_status.json", {"updated_at": now(), "runs": statuses})
             report(suite, report_dir, run_dirs)
