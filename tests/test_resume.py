@@ -23,6 +23,23 @@ def test_int8_optimizer_state_survives_checkpoint_save_and_resume(tmp_path):
     assert torch.equal(parameter, restored_parameter)
 
 
+def test_dynamic_int8_optimizer_state_survives_checkpoint_save_and_resume(tmp_path):
+    parameter = torch.nn.Parameter(torch.tensor([1.0, -2.0, .3]))
+    optimizer = ReferenceAdamW([parameter], lr=.01, state_simulation="int8_dynamic_all_moments",
+                               state_quantization_granularity="blockwise", state_quantization_block_size=2)
+    parameter.grad = torch.tensor([.37, -.11, .22]); optimizer.step()
+    path = tmp_path / "dynamic-int8-state.pt"
+    torch.save({"parameter": parameter.detach(), "optimizer": optimizer.state_dict()}, path)
+    restored_parameter = torch.nn.Parameter(torch.zeros_like(parameter))
+    restored_optimizer = ReferenceAdamW([restored_parameter], lr=.01, state_simulation="int8_dynamic_all_moments",
+                                        state_quantization_granularity="blockwise", state_quantization_block_size=2)
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    restored_parameter.data.copy_(checkpoint["parameter"]); restored_optimizer.load_state_dict(checkpoint["optimizer"])
+    restored_parameter.grad = torch.tensor([.13, .29, -.17]); parameter.grad = restored_parameter.grad.clone()
+    optimizer.step(); restored_optimizer.step()
+    assert torch.equal(parameter, restored_parameter)
+
+
 def test_old_optimizer_checkpoint_without_blockwise_group_keys_still_resumes():
     parameter = torch.nn.Parameter(torch.tensor([1., -2.]))
     old = ReferenceAdamW([parameter], lr=.01, state_simulation="int8_linear_all_moments")

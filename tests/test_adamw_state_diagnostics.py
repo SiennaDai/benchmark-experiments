@@ -57,6 +57,24 @@ def test_blockwise_diagnostics_report_per_block_scales_without_mutation():
         assert torch.equal(value, opt.state[p][key])
 
 
+def test_dynamic_diagnostics_report_block_absmax_scales_and_occupancy_without_mutation():
+    p = torch.nn.Parameter(torch.tensor([1., -2., 3., -4., .5]))
+    opt = ReferenceAdamW([p], lr=.1, betas=(0., .5), state_simulation="int8_dynamic_all_moments",
+                         state_quantization_granularity="blockwise", state_quantization_block_size=2)
+    collector = AdamWStateDiagnostics({id(p): "p"}, quantization_granularity="blockwise",
+                                      quantization_block_size=2, state_simulation="int8_dynamic_all_moments")
+    opt.set_diagnostic_observer(collector.observe)
+    _step(opt, p, torch.tensor([.1, .7, 2., .3, .5]))
+    before = {key: value.clone() for key, value in opt.state[p].items() if torch.is_tensor(value)}
+    result = collector.finish_update(update=1, processed_target_tokens=1, train_nll=1., pre_clip_grad_norm=1., learning_rate=.1)
+    occupancy = result["second_moment"]["dynamic_codebook_occupancy"]
+    assert result["second_moment"]["scale_min"] is not None
+    assert occupancy["codebook_occupancy_sample_elements"] > 0
+    assert 0 <= occupancy["fraction_mapped_to_zero_code"] <= 1
+    for key, value in before.items():
+        assert torch.equal(value, opt.state[p][key])
+
+
 def test_denominator_and_zero_edge_cases_are_json_safe():
     p=torch.nn.Parameter(torch.tensor([1.,2.]));o=ReferenceAdamW([p],lr=.1);c=AdamWStateDiagnostics({id(p):"p"});o.set_diagnostic_observer(c.observe);_step(o,p,torch.zeros(2))
     r=c.finish_update(update=1,processed_target_tokens=1,train_nll=1.,pre_clip_grad_norm=1.,learning_rate=.1)

@@ -13,6 +13,8 @@ from collections import defaultdict
 
 import torch
 
+from .state_simulation import create_bitsandbytes_dynamic_map, _nearest_codebook_values
+
 
 def _kind(value: float):
     if math.isnan(value): return {"nonfinite": "nan"}
@@ -67,7 +69,8 @@ class AdamWStateDiagnostics:
     schema_version = 1
 
     def __init__(self, parameter_names: dict[int, str], *, tensor_landmarks=(),
-                 quantization_granularity="per_state_tensor", quantization_block_size=2048):
+                 quantization_granularity="per_state_tensor", quantization_block_size=2048,
+                 state_simulation="none"):
         self.parameter_names = parameter_names
         self.tensor_landmarks = set(tensor_landmarks)
         if quantization_granularity not in {"per_state_tensor", "blockwise"}:
@@ -76,6 +79,7 @@ class AdamWStateDiagnostics:
             raise ValueError("quantization block size must be positive")
         self.quantization_granularity = quantization_granularity
         self.quantization_block_size = quantization_block_size
+        self.state_simulation = state_simulation
         self._items = []
 
     def _scales(self, value: torch.Tensor) -> list[torch.Tensor]:
@@ -83,7 +87,47 @@ class AdamWStateDiagnostics:
         flat = value.detach().float().reshape(-1)
         if self.quantization_granularity == "per_state_tensor":
             return [flat.abs().max() / 127] if flat.numel() else []
-        return [block.abs().max() / 127 for block in flat.split(self.quantization_block_size) if block.numel()]
+        divisor = 1 if self.state_simulation == "int8_dynamic_all_moments" else 127
+        return [block.abs().max() / divisor for block in flat.split(self.quantization_block_size) if block.numel()]
+
+    @torch.no_grad()
+    def _dynamic_occupancy(self, values, *, signed: bool):
+        """Bounded block-normalized dynamic-codebook occupancy observation."""
+        if self.state_simulation != "int8_dynamic_all_moments":
+            return {}
+        samples = []
+        for value in values:
+            flat = value.detach().float().reshape(-1)
+            full = (flat.numel() // self.quantization_block_size) * self.quantization_block_size
+            if full:
+                blocks = flat[:full].reshape(-1, self.quantization_block_size)
+                # At most 16 deterministic positions per block keeps diagnostic
+                # overhead bounded while retaining each block's own absmax.
+                count = min(16, self.quantization_block_size)
+                positions = _evenly_spaced_indices(self.quantization_block_size, count, flat.device)
+                scales = blocks.abs().amax(dim=1, keepdim=True)
+                safe = torch.where(scales == 0, torch.ones_like(scales), scales)
+                samples.append((blocks[:, positions] / safe).reshape(-1))
+            if full < flat.numel():
+                tail = flat[full:]
+                scale = tail.abs().max()
+                safe = scale if scale.item() != 0 else torch.ones_like(scale)
+                samples.append(_sample(tail / safe, limit=16))
+        if not samples:
+            return {"codebook_occupancy_sample_elements": 0, "codebook_levels_used": 0,
+                    "codebook_levels_used_fraction": 0.0, "fraction_mapped_to_zero_code": 0.0,
+                    "fraction_mapped_to_smallest_positive_code": 0.0}
+        normalized = torch.cat(samples)
+        codebook = create_bitsandbytes_dynamic_map(signed=signed, device=normalized.device)
+        mapped = _nearest_codebook_values(normalized, codebook)
+        zero = codebook[torch.searchsorted(codebook, torch.tensor(0., device=codebook.device))]
+        positive = codebook[codebook > 0][0]
+        levels = torch.unique(mapped)
+        return {"codebook_occupancy_sample_elements": int(mapped.numel()),
+                "codebook_levels_used": int(levels.numel()),
+                "codebook_levels_used_fraction": float(levels.numel() / codebook.numel()),
+                "fraction_mapped_to_zero_code": float((mapped == zero).float().mean().item()),
+                "fraction_mapped_to_smallest_positive_code": float((mapped == positive).float().mean().item())}
 
     @torch.no_grad()
     def observe(self, *, parameter, exp_avg_pre, exp_avg_post, exp_avg_sq_pre,
@@ -137,6 +181,8 @@ class AdamWStateDiagnostics:
                   "post_quant_min": mn(post_mins), "post_quant_min_positive": mn(post_positive), "post_quant_max": mx(post_maxs), "post_quant_mean": _kind(sum_post / n_elements),
                   "global_relative_l2_quantization_error": _kind(math.sqrt(sq_error) / max(math.sqrt(sq_pre), 1e-30)), "global_max_abs_quantization_error": _kind(max_error),
                   "scale_min": mn(scales), "scale_median": scale_percentiles["p50"], "scale_p90": scale_percentiles["p90"], "scale_p99": scale_percentiles["p99"], "scale_max": mx(scales)}
+        if self.state_simulation == "int8_dynamic_all_moments":
+            output["dynamic_codebook_occupancy"] = self._dynamic_occupancy(pre_list, signed=not include_denominator)
         if include_denominator:
             amp_percentiles = _percentiles(amp_samples, names=(50,90,99,99.9))
             output.update({"denom_pre_min": _kind(denom_pre_min), "denom_post_min": _kind(denom_post_min), "inverse_denom_pre_max": _kind(inv_pre_max), "inverse_denom_post_max": _kind(inv_post_max),

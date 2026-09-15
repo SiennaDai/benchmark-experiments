@@ -6,7 +6,8 @@ from benchmark_suite import load_suite
 from config.recipe import load_recipe
 from optim.adamw_reference import ReferenceAdamW
 from optim.muon_reference import ReferenceMuon
-from optim.state_simulation import int8_blockwise_linear_roundtrip, int8_linear_roundtrip, persistence_metadata
+from optim.state_simulation import (create_bitsandbytes_dynamic_map, int8_blockwise_dynamic_roundtrip,
+                                    int8_blockwise_linear_roundtrip, int8_linear_roundtrip, persistence_metadata)
 from reporting import GENERATED_FIELDS, IDENTITY_FIELDS, flatten, scientific_differences
 
 
@@ -55,6 +56,35 @@ def test_blockwise_int8_boundaries_zero_blocks_and_nearest_rounding():
     expected = torch.tensor([-2., -2. * 64 / 127, 0., 2. * 64 / 127, 2.])
     assert torch.allclose(actual, expected)
     assert torch.equal(actual, int8_blockwise_linear_roundtrip(value, 5))
+
+
+def test_pinned_bitsandbytes_dynamic_maps_match_reference_construction_values():
+    signed = create_bitsandbytes_dynamic_map(signed=True)
+    unsigned = create_bitsandbytes_dynamic_map(signed=False)
+    assert signed.dtype == unsigned.dtype == torch.float32
+    assert signed.numel() == unsigned.numel() == 256
+    assert torch.equal(signed, create_bitsandbytes_dynamic_map(signed=True))
+    assert (signed == 0).sum() == (unsigned == 0).sum() == 1
+    assert torch.all(signed[1:] >= signed[:-1]) and torch.all(unsigned[1:] >= unsigned[:-1])
+    # Known FP32 values from bitsandbytes functional.create_dynamic_map
+    # (signed=True/False, max_exponent_bits=7, total_bits=8).
+    assert torch.allclose(signed[:3], torch.tensor([-.9929687381, -.9789062738, -.96484375]))
+    assert torch.allclose(unsigned[:5], torch.tensor([0., 3.2500003e-7, 7.7499999e-7, 2.1249998e-6, 4.3749997e-6]))
+    assert signed[-1] == unsigned[-1] == 1
+
+
+def test_blockwise_dynamic_roundtrip_handles_signed_unsigned_zero_and_partial_blocks():
+    signed = torch.tensor([-2., -.2, 0., .2, 2., .01], dtype=torch.float64)
+    unsigned = torch.tensor([0., .001, .1, 1., .01], dtype=torch.float64)
+    for value, is_signed in ((signed, True), (unsigned, False)):
+        actual = int8_blockwise_dynamic_roundtrip(value, signed=is_signed, block_size=5)
+        assert actual.dtype == torch.float32 and actual.shape == value.shape
+        assert torch.equal(actual, int8_blockwise_dynamic_roundtrip(value, signed=is_signed, block_size=5))
+        if is_signed:
+            assert actual[0] < 0 and actual[0].abs() <= value[0].abs()
+        else:
+            assert actual[0] == 0
+    assert torch.equal(int8_blockwise_dynamic_roundtrip(torch.zeros(2050), signed=False), torch.zeros(2050))
 
 
 def _adam_pair(simulation):
@@ -149,6 +179,21 @@ def test_blockwise_persistence_is_post_update_and_changes_the_next_step_only():
     assert not torch.equal(a, b)  # only next-step state sees persisted roundtrip
 
 
+def test_dynamic_adam_persists_both_moments_after_current_fp32_update():
+    a, b = torch.nn.Parameter(torch.tensor([1., -2., 3.])), torch.nn.Parameter(torch.tensor([1., -2., 3.]))
+    plain = ReferenceAdamW([a], lr=.1, betas=(.5, .5))
+    dynamic = ReferenceAdamW([b], lr=.1, betas=(.5, .5), state_simulation="int8_dynamic_all_moments",
+                             state_quantization_granularity="blockwise", state_quantization_block_size=2)
+    first = torch.tensor([.37, -.11, .02]); a.grad = first.clone(); b.grad = first.clone()
+    plain.step(); dynamic.step()
+    assert torch.equal(a, b)
+    assert torch.equal(dynamic.state[b]["exp_avg"], int8_blockwise_dynamic_roundtrip(plain.state[a]["exp_avg"], signed=True, block_size=2))
+    assert torch.equal(dynamic.state[b]["exp_avg_sq"], int8_blockwise_dynamic_roundtrip(plain.state[a]["exp_avg_sq"], signed=False, block_size=2))
+    second = torch.tensor([.13, .29, -.17]); a.grad = second.clone(); b.grad = second.clone()
+    plain.step(); dynamic.step()
+    assert not torch.equal(a, b)
+
+
 def test_int8_metadata_makes_selected_and_fp32_states_auditable():
     adam = persistence_metadata("reference_adamw", "int8_linear_first_moment")
     assert adam["bits"] == 8 and adam["granularity"] == "per_state_tensor"
@@ -200,3 +245,18 @@ def test_blockwise_recipes_and_suite_hold_the_4x_protocol_constant():
     configs = [load_recipe(run["recipe"]) for run in suite["runs"]]
     assert len(configs) == 2
     assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []
+
+
+def test_dynamic_recipe_and_metadata_pin_blockwise_signed_m_unsigned_v():
+    cfg = load_recipe(ROOT / "recipes/mini_fp32_reference_adamw_int8_blockwise_dynamic_state_4x_s0.json")
+    assert cfg["derived"]["total_updates"] == cfg["derived"]["schedule_total_updates"] == 4096
+    assert cfg["optimizer"]["state_simulation"] == "int8_dynamic_all_moments"
+    assert cfg["optimizer"]["state_quantization_granularity"] == "blockwise"
+    assert cfg["optimizer"]["state_quantization_block_size"] == 2048
+    meta = persistence_metadata("reference_adamw", "int8_dynamic_all_moments", quantization_granularity="blockwise")
+    assert meta["simulation"] == "int8_dynamic_roundtrip"
+    assert meta["state_groups"]["reference_adamw"]["quantized_state_names"] == ["exp_avg", "exp_avg_sq"]
+    assert meta["dynamic_map_provenance"]["exp_avg"]["signed"] is True
+    assert meta["dynamic_map_provenance"]["exp_avg_sq"]["signed"] is False
+    suite = load_suite(ROOT / "benchmarks/mini_adamw_int8_blockwise_dynamic_4x_s0_v1.json")
+    assert len(suite["runs"]) == 1

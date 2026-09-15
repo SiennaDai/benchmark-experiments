@@ -1,0 +1,9 @@
+{
+  "name": "mini_adamw_int8_blockwise_dynamic_4x_s0_v1",
+  "runs": [
+    {"run_id": "reference_adamw_int8_blockwise_dynamic_state_4x_s0", "recipe": "../recipes/mini_fp32_reference_adamw_int8_blockwise_dynamic_state_4x_s0.json"}
+  ],
+  "vary": ["optimizer.state_simulation", "optimizer.state_quantization_granularity", "optimizer.state_quantization_block_size", "logging.state_diagnostics"],
+  "runtime": {"device": "cuda:0", "max_wall_seconds": 13200},
+  "report": {"output": "reports/mini_adamw_int8_blockwise_dynamic_4x_s0_v1"}
+}

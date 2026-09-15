@@ -201,7 +201,8 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
         names = {id(parameter): name for name, parameter in model.named_parameters()}
         collector = AdamWStateDiagnostics(names, tensor_landmarks=(1, 2, 3, 4, 5, 10, 20, 40, 60, 70, 75, 76),
             quantization_granularity=cfg["optimizer"].get("state_quantization_granularity", "per_state_tensor"),
-            quantization_block_size=cfg["optimizer"].get("state_quantization_block_size", 2048))
+            quantization_block_size=cfg["optimizer"].get("state_quantization_block_size", 2048),
+            state_simulation=cfg["optimizer"]["state_simulation"])
         optimizer.set_diagnostic_observer(collector.observe)
         state_writer = EventWriter(run_dir/"state_diagnostics.jsonl", run_id, segment)
     started = time.monotonic(); status, reason = "completed", None

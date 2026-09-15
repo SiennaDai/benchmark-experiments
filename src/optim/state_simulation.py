@@ -16,8 +16,85 @@ INT8_LINEAR_SIMULATIONS = frozenset({
     "int8_linear_all_moments",
     "int8_linear_momentum",
 })
-STATE_SIMULATIONS = frozenset({"none", "bf16_roundtrip", *INT8_LINEAR_SIMULATIONS})
+INT8_DYNAMIC_SIMULATIONS = frozenset({"int8_dynamic_all_moments"})
+STATE_SIMULATIONS = frozenset({"none", "bf16_roundtrip", *INT8_LINEAR_SIMULATIONS, *INT8_DYNAMIC_SIMULATIONS})
 QUANTIZATION_GRANULARITIES = frozenset({"per_state_tensor", "blockwise"})
+
+
+def create_bitsandbytes_dynamic_map(*, signed: bool, max_exponent_bits: int = 7,
+                                    total_bits: int = 8, device=None) -> torch.Tensor:
+    """Create the pinned bitsandbytes ``create_dynamic_map`` reference map.
+
+    This is a direct, dependency-free transcription of bitsandbytes
+    ``functional.create_dynamic_map`` (dynamic-map construction, 8-bit,
+    ``max_exponent_bits=7``).  It intentionally builds the map in FP32 and
+    does not use bitsandbytes kernels.  ``signed=False`` has 256 nonnegative
+    representable values; the signed map has both signs plus zero.
+    """
+    if total_bits != 8 or max_exponent_bits != 7:
+        raise ValueError("this benchmark pins the bitsandbytes dynamic 8-bit map parameters")
+    data: list[float] = []
+    # Reference semantics deliberately reserve one non-sign bit in both maps.
+    non_sign_bits = total_bits - 1
+    additional_items = 2 ** (non_sign_bits - max_exponent_bits) - 1
+    for i in range(max_exponent_bits):
+        fraction_items = int(2 ** (i + non_sign_bits - max_exponent_bits) + 1
+                             if signed else 2 ** (i + non_sign_bits - max_exponent_bits + 1) + 1)
+        boundaries = torch.linspace(0.1, 1, fraction_items, dtype=torch.float32)
+        means = (boundaries[:-1] + boundaries[1:]) / 2.0
+        values = ((10 ** (-(max_exponent_bits - 1) + i)) * means).tolist()
+        data.extend(values)
+        if signed:
+            data.extend([-value for value in values])
+    if additional_items > 0:
+        boundaries = torch.linspace(0.1, 1, additional_items + 1, dtype=torch.float32)
+        means = (boundaries[:-1] + boundaries[1:]) / 2.0
+        values = ((10 ** (-(max_exponent_bits - 1) + i)) * means).tolist()
+        data.extend(values)
+        if signed:
+            data.extend([-value for value in values])
+    data.extend([0.0, 1.0])
+    if len(data) != 2 ** total_bits:
+        raise AssertionError("pinned dynamic map must have 256 values")
+    return torch.tensor(sorted(data), dtype=torch.float32, device=device)
+
+
+def _nearest_codebook_values(normalized: torch.Tensor, codebook: torch.Tensor) -> torch.Tensor:
+    """Nearest lookup with deterministic lower-level selection on exact ties."""
+    flat = normalized.reshape(-1).clamp(codebook[0], codebook[-1])
+    upper = torch.searchsorted(codebook, flat).clamp(max=codebook.numel() - 1)
+    lower = (upper - 1).clamp(min=0)
+    choose_upper = (flat - codebook[lower]).abs() > (codebook[upper] - flat).abs()
+    return torch.where(choose_upper, codebook[upper], codebook[lower]).reshape_as(normalized)
+
+
+def int8_blockwise_dynamic_roundtrip(state: torch.Tensor, *, signed: bool,
+                                     block_size: int = 2048) -> torch.Tensor:
+    """Blockwise absmax dynamic-map persistence simulation in FP32.
+
+    Each call receives exactly one optimizer-state tensor, so blocks cannot
+    cross state-tensor boundaries.  A current update uses the unrounded state;
+    this result is only stored for the following update.
+    """
+    if not isinstance(block_size, int) or block_size <= 0:
+        raise ValueError("block_size must be a positive integer")
+    value = state.float()
+    flat = value.reshape(-1)
+    if not flat.numel():
+        return value
+    codebook = create_bitsandbytes_dynamic_map(signed=signed, device=value.device)
+    result = torch.empty_like(flat)
+    full_elements = (flat.numel() // block_size) * block_size
+    if full_elements:
+        blocks = flat[:full_elements].reshape(-1, block_size)
+        scales = blocks.abs().amax(dim=1, keepdim=True)
+        safe_scales = torch.where(scales == 0, torch.ones_like(scales), scales)
+        result[:full_elements] = (_nearest_codebook_values(blocks / safe_scales, codebook) * scales).reshape(-1)
+    if full_elements < flat.numel():
+        tail = flat[full_elements:]
+        scale = tail.abs().max()
+        result[full_elements:] = tail if scale.item() == 0 else _nearest_codebook_values(tail / scale, codebook) * scale
+    return result.reshape_as(value).float()
 
 
 def int8_linear_roundtrip(state: torch.Tensor) -> torch.Tensor:
@@ -77,6 +154,13 @@ def persist_state(state: torch.Tensor, simulation: str, state_name: str, *,
         return state
     if simulation == "bf16_roundtrip":
         return state.to(torch.bfloat16).float()
+    if simulation == "int8_dynamic_all_moments":
+        if state_name not in {"exp_avg", "exp_avg_sq"}:
+            return state
+        if quantization_granularity != "blockwise":
+            raise ValueError("dynamic INT8 persistence requires blockwise granularity")
+        return int8_blockwise_dynamic_roundtrip(state, signed=state_name == "exp_avg",
+                                                block_size=quantization_block_size)
     selected = {
         "int8_linear_first_moment": {"exp_avg"},
         "int8_linear_second_moment": {"exp_avg_sq"},
@@ -105,6 +189,7 @@ def persistence_metadata(optimizer_name: str, simulation: str, *,
             "int8_linear_first_moment": ["exp_avg"],
             "int8_linear_second_moment": ["exp_avg_sq"],
             "int8_linear_all_moments": all_states,
+            "int8_dynamic_all_moments": all_states,
         }.get(simulation)
         if selected is None:
             raise ValueError(f"simulation {simulation} is invalid for {optimizer_name}")
@@ -135,6 +220,24 @@ def persistence_metadata(optimizer_name: str, simulation: str, *,
                              "partial_final_block": "supported",
                              "simulation": "int8_linear_roundtrip",
                              "state_simulation_mode": simulation})
+    elif simulation in INT8_DYNAMIC_SIMULATIONS:
+        if quantization_granularity != "blockwise":
+            raise ValueError("dynamic INT8 persistence requires blockwise granularity")
+        metadata.update({
+            "simulation": "int8_dynamic_roundtrip", "state_simulation_mode": simulation,
+            "quantizer": "bitsandbytes_create_dynamic_map_reference", "bits": 8,
+            "granularity": "blockwise", "block_size": quantization_block_size,
+            "partial_final_block": "supported", "rounding": "nearest_codebook_value",
+            "block_scale": "absmax", "persistent_storage_in_platform": "fp32_dequantized_simulation",
+            "actual_optimizer_memory_reduction": False,
+            "dynamic_map_provenance": {
+                "source": "bitsandbytes.functional.create_dynamic_map",
+                "implementation": "pinned_pure_torch_transcription",
+                "max_exponent_bits": 7, "total_bits": 8,
+                "exp_avg": {"codebook": "dynamic", "signed": True, "representable_values": 256},
+                "exp_avg_sq": {"codebook": "dynamic", "signed": False, "representable_values": 256},
+            },
+        })
     elif simulation == "bf16_roundtrip":
         metadata.update({"quantizer": "bf16_roundtrip", "persistent_storage_in_platform": "fp32_dequantized_simulation",
                          "actual_optimizer_memory_reduction": False})
