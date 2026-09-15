@@ -27,7 +27,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps"}, "logging": {"state_diagnostics"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "state_quantization_granularity", "state_quantization_block_size"}, "logging": {"state_diagnostics"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -94,6 +94,15 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         raise RecipeError("int8_linear_momentum is only valid for reference_muon")
     if o["name"] == "reference_muon" and o["state_simulation"] in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments"}:
         raise RecipeError("AdamW INT8 state simulations are only valid for reference_adamw")
+    granularity = o.get("state_quantization_granularity", "per_state_tensor")
+    if granularity not in {"per_state_tensor", "blockwise"}:
+        raise RecipeError("optimizer.state_quantization_granularity is unsupported")
+    block_size = o.get("state_quantization_block_size", 2048)
+    _require_type(block_size, int, "optimizer.state_quantization_block_size")
+    if block_size <= 0:
+        raise RecipeError("optimizer.state_quantization_block_size must be positive")
+    if granularity == "blockwise" and not o["state_simulation"].startswith("int8_linear_"):
+        raise RecipeError("blockwise state quantization requires an INT8 linear state simulation")
     if not isinstance(o["betas"], list) or len(o["betas"]) != 2:
         raise RecipeError("optimizer.betas must be a two-element array")
     if o["name"] == "reference_muon":

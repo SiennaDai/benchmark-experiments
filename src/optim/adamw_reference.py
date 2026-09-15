@@ -6,12 +6,15 @@ from .state_simulation import STATE_SIMULATIONS, persist_state
 
 
 class ReferenceAdamW(torch.optim.Optimizer):
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0, state_simulation="none"):
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0, state_simulation="none",
+                 state_quantization_granularity="per_state_tensor", state_quantization_block_size=2048):
         if state_simulation not in STATE_SIMULATIONS:
             raise ValueError("unsupported state simulation")
         if state_simulation == "int8_linear_momentum":
             raise ValueError("int8_linear_momentum is only valid for ReferenceMuon")
-        super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, state_simulation=state_simulation))
+        super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, state_simulation=state_simulation,
+                                     state_quantization_granularity=state_quantization_granularity,
+                                     state_quantization_block_size=state_quantization_block_size))
         self._diagnostic_observer = None
 
     def set_diagnostic_observer(self, observer):
@@ -48,8 +51,12 @@ class ReferenceAdamW(torch.optim.Optimizer):
                 updated = p.float().mul(1-group["lr"]*group["weight_decay"]).addcdiv(m_hat, v_hat.sqrt().add(group["eps"]), value=-group["lr"])
                 # Current update uses m/v above.  Simulate lower-precision
                 # persistence only after it, for the next optimizer step.
-                persisted_m = persist_state(m, group["state_simulation"], "exp_avg")
-                persisted_v = persist_state(v, group["state_simulation"], "exp_avg_sq")
+                # Old checkpoints predate these optional group keys.  Their
+                # historical behavior is the per-state-tensor default.
+                persistence = dict(quantization_granularity=group.get("state_quantization_granularity", "per_state_tensor"),
+                                   quantization_block_size=group.get("state_quantization_block_size", 2048))
+                persisted_m = persist_state(m, group["state_simulation"], "exp_avg", **persistence)
+                persisted_v = persist_state(v, group["state_simulation"], "exp_avg_sq", **persistence)
                 if self._diagnostic_observer is not None:
                     self._diagnostic_observer(parameter=p, exp_avg_pre=m, exp_avg_post=persisted_m,
                         exp_avg_sq_pre=v, exp_avg_sq_post=persisted_v, updated=updated, group=group, step=t)

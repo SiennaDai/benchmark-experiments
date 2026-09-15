@@ -22,6 +22,22 @@ def test_int8_optimizer_state_survives_checkpoint_save_and_resume(tmp_path):
     optimizer.step(); restored_optimizer.step()
     assert torch.equal(parameter, restored_parameter)
 
+
+def test_old_optimizer_checkpoint_without_blockwise_group_keys_still_resumes():
+    parameter = torch.nn.Parameter(torch.tensor([1., -2.]))
+    old = ReferenceAdamW([parameter], lr=.01, state_simulation="int8_linear_all_moments")
+    parameter.grad = torch.tensor([.37, -.11]); old.step()
+    checkpoint = copy.deepcopy(old.state_dict())
+    for group in checkpoint["param_groups"]:
+        group.pop("state_quantization_granularity", None)
+        group.pop("state_quantization_block_size", None)
+    restored_parameter = torch.nn.Parameter(parameter.detach().clone())
+    restored = ReferenceAdamW([restored_parameter], lr=.01, state_simulation="int8_linear_all_moments")
+    restored.load_state_dict(checkpoint)
+    parameter.grad = restored_parameter.grad = torch.tensor([.13, .29])
+    old.step(); restored.step()
+    assert torch.equal(parameter, restored_parameter)
+
 def test_optimizer_sampler_and_rng_resume_exact():
     def setup():
         random.seed(7);np.random.seed(7);torch.manual_seed(7);p=torch.nn.Parameter(torch.tensor([1.,-2.]));return p,ReferenceAdamW([p],lr=.01),DeterministicSampler(13,5,True)

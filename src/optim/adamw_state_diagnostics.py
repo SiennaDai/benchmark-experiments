@@ -66,10 +66,24 @@ class AdamWStateDiagnostics:
     """Per-update aggregator installed as an optional ReferenceAdamW observer."""
     schema_version = 1
 
-    def __init__(self, parameter_names: dict[int, str], *, tensor_landmarks=()):
+    def __init__(self, parameter_names: dict[int, str], *, tensor_landmarks=(),
+                 quantization_granularity="per_state_tensor", quantization_block_size=2048):
         self.parameter_names = parameter_names
         self.tensor_landmarks = set(tensor_landmarks)
+        if quantization_granularity not in {"per_state_tensor", "blockwise"}:
+            raise ValueError("unsupported quantization granularity")
+        if not isinstance(quantization_block_size, int) or quantization_block_size <= 0:
+            raise ValueError("quantization block size must be positive")
+        self.quantization_granularity = quantization_granularity
+        self.quantization_block_size = quantization_block_size
         self._items = []
+
+    def _scales(self, value: torch.Tensor) -> list[torch.Tensor]:
+        """Return the exact scale units used by persistence, without mutation."""
+        flat = value.detach().float().reshape(-1)
+        if self.quantization_granularity == "per_state_tensor":
+            return [flat.abs().max() / 127] if flat.numel() else []
+        return [block.abs().max() / 127 for block in flat.split(self.quantization_block_size) if block.numel()]
 
     @torch.no_grad()
     def observe(self, *, parameter, exp_avg_pre, exp_avg_post, exp_avg_sq_pre,
@@ -83,8 +97,7 @@ class AdamWStateDiagnostics:
                             "v_pre": exp_avg_sq_pre.detach(), "v_post": exp_avg_sq_post.detach(),
                             "beta2": group["betas"][1], "eps": group["eps"], "step": step})
 
-    @staticmethod
-    def _state_stats(pre_list, post_list, *, include_denominator=False, beta2=None, eps=None, step=None):
+    def _state_stats(self, pre_list, post_list, *, include_denominator=False, beta2=None, eps=None, step=None):
         n_tensors, n_elements = len(pre_list), sum(x.numel() for x in pre_list)
         if not n_tensors:
             return {"number_of_state_tensors": 0, "number_of_state_elements": 0}
@@ -104,7 +117,7 @@ class AdamWStateDiagnostics:
                 mins.append(a.min()); maxs.append(a.max()); post_mins.append(b.min()); post_maxs.append(b.max())
                 if (a > 0).any(): min_positive.append(a[a > 0].min())
                 if (b > 0).any(): post_positive.append(b[b > 0].min())
-                scale = a.abs().max() / 127; scales.append(scale)
+                scales.extend(self._scales(pre))
                 if include_denominator:
                     correction = 1 - beta2 ** step
                     denom_pre = (a / correction).clamp_min(0).sqrt().add(eps)

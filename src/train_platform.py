@@ -185,7 +185,9 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
         completed, processed, segment, prior_elapsed = ckpt["completed_updates"], ckpt["processed_target_tokens"], ckpt["next_segment_id"], ckpt["elapsed_seconds"]
         restore_rng(ckpt["rng"]); run_id = ckpt["run_id"]
     else:
-        state_policy = persistence_metadata(cfg["optimizer"]["name"], cfg["optimizer"]["state_simulation"])
+        state_policy = persistence_metadata(cfg["optimizer"]["name"], cfg["optimizer"]["state_simulation"],
+            quantization_granularity=cfg["optimizer"].get("state_quantization_granularity", "per_state_tensor"),
+            quantization_block_size=cfg["optimizer"].get("state_quantization_block_size", 2048))
         grouping = {"muon_parameters": sum(r["numel"] for r in records if r["group"] == "muon"), "auxiliary_adamw_parameters": sum(r["numel"] for r in records if r["group"] == "auxiliary_adamw"), "muon_tensor_count": sum(r["group"] == "muon" for r in records), "auxiliary_adamw_tensor_count": sum(r["group"] == "auxiliary_adamw" for r in records)}
         dump_resolved(cfg, run_dir/"resolved_config.json"); write_json(run_dir/"environment.json", environment_snapshot()); write_json(run_dir/"source.json", source_snapshot(root)); write_json(run_dir/"data_manifest.json", {k:v for k,v in manifest.items() if k != "_path"}); write_json(run_dir/"parameters.json", records); write_json(run_dir/"precision.json", {**cfg["precision"], "to_device": to_device, "device": str(device), "optimizer_state_simulation": cfg["optimizer"]["state_simulation"], "state_persistence": state_policy, "roundtrip_state_policy": state_policy["persistence_timing"], "parameter_grouping": grouping, "state_diagnostics": {"enabled": bool(cfg["logging"].get("state_diagnostics", False)), "stream": "state_diagnostics.jsonl", "timing": "detached read-only observation after FP32 moment/current update and after persistence simulation", "percentile_method": "bounded deterministic per-tensor evenly-spaced samples; exact counts/extrema/L2 reductions"}})
     writer = EventWriter(run_dir/"metrics.jsonl", run_id, segment)
@@ -197,7 +199,9 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
             raise ValueError("logging.state_diagnostics currently requires reference_adamw")
         # Names are only used in the compact selected-landmark artifact.
         names = {id(parameter): name for name, parameter in model.named_parameters()}
-        collector = AdamWStateDiagnostics(names, tensor_landmarks=(1, 2, 3, 4, 5, 10, 20, 40, 60, 70, 75, 76))
+        collector = AdamWStateDiagnostics(names, tensor_landmarks=(1, 2, 3, 4, 5, 10, 20, 40, 60, 70, 75, 76),
+            quantization_granularity=cfg["optimizer"].get("state_quantization_granularity", "per_state_tensor"),
+            quantization_block_size=cfg["optimizer"].get("state_quantization_block_size", 2048))
         optimizer.set_diagnostic_observer(collector.observe)
         state_writer = EventWriter(run_dir/"state_diagnostics.jsonl", run_id, segment)
     started = time.monotonic(); status, reason = "completed", None

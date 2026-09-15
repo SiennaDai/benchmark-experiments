@@ -42,6 +42,21 @@ def test_quantized_v_diagnostics_and_fp32_identity():
     assert c.finish_update(update=1,processed_target_tokens=1,train_nll=1.,pre_clip_grad_norm=1.,learning_rate=.1)["second_moment"]["global_relative_l2_quantization_error"] == 0.
 
 
+def test_blockwise_diagnostics_report_per_block_scales_without_mutation():
+    p = torch.nn.Parameter(torch.tensor([1., -2., 3., -4., .5]))
+    opt = ReferenceAdamW([p], lr=.1, betas=(0., .5), state_simulation="int8_linear_second_moment",
+                         state_quantization_granularity="blockwise", state_quantization_block_size=2)
+    collector = AdamWStateDiagnostics({id(p): "p"}, quantization_granularity="blockwise", quantization_block_size=2)
+    opt.set_diagnostic_observer(collector.observe)
+    _step(opt, p, torch.tensor([.1, .7, 2., .3, .5]))
+    before = {key: value.clone() for key, value in opt.state[p].items() if torch.is_tensor(value)}
+    result = collector.finish_update(update=1, processed_target_tokens=1, train_nll=1., pre_clip_grad_norm=1., learning_rate=.1)
+    stats = result["second_moment"]
+    assert stats["scale_min"] is not None and stats["scale_max"] is not None
+    for key, value in before.items():
+        assert torch.equal(value, opt.state[p][key])
+
+
 def test_denominator_and_zero_edge_cases_are_json_safe():
     p=torch.nn.Parameter(torch.tensor([1.,2.]));o=ReferenceAdamW([p],lr=.1);c=AdamWStateDiagnostics({id(p):"p"});o.set_diagnostic_observer(c.observe);_step(o,p,torch.zeros(2))
     r=c.finish_update(update=1,processed_target_tokens=1,train_nll=1.,pre_clip_grad_norm=1.,learning_rate=.1)

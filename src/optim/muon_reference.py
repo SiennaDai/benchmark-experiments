@@ -33,14 +33,17 @@ class ReferenceMuon(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=1e-3, betas=(.9, .999), eps=1e-8, weight_decay=.1,
                  state_simulation="none", muon_momentum=.95, muon_nesterov=True,
-                 muon_ns_steps=5, muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7):
+                 muon_ns_steps=5, muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7,
+                 state_quantization_granularity="per_state_tensor", state_quantization_block_size=2048):
         if state_simulation not in STATE_SIMULATIONS: raise ValueError("unsupported state simulation")
         if state_simulation in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments"}:
             raise ValueError("AdamW INT8 state simulations are invalid for ReferenceMuon")
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
                         state_simulation=state_simulation, muon_momentum=muon_momentum,
                         muon_nesterov=muon_nesterov, muon_ns_steps=muon_ns_steps,
-                        muon_ns_coefficients=tuple(muon_ns_coefficients), muon_eps=muon_eps)
+                        muon_ns_coefficients=tuple(muon_ns_coefficients), muon_eps=muon_eps,
+                        state_quantization_granularity=state_quantization_granularity,
+                        state_quantization_block_size=state_quantization_block_size)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -60,7 +63,9 @@ class ReferenceMuon(torch.optim.Optimizer):
                     p.copy_(p.float().mul(1 - group["lr"] * group["weight_decay"]).add(update, alpha=-group["lr"]).to(p.dtype))
                     # Orthogonalization and this step's update use unrounded
                     # momentum; only the next step sees simulated persistence.
-                    state["muon_momentum"] = persist_state(momentum, group["state_simulation"], "muon_momentum")
+                    state["muon_momentum"] = persist_state(momentum, group["state_simulation"], "muon_momentum",
+                        quantization_granularity=group.get("state_quantization_granularity", "per_state_tensor"),
+                        quantization_block_size=group.get("state_quantization_block_size", 2048))
                 else:
                     step = state.get("step", 0) + 1; state["step"] = step
                     m = state.get("exp_avg", torch.zeros_like(p, dtype=torch.float32)).mul(group["betas"][0]).add(grad, alpha=1-group["betas"][0])

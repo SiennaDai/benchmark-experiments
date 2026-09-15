@@ -13,11 +13,15 @@ def make_optimizer(name, groups, cfg):
     if name == "torch_adamw":
         return torch.optim.AdamW(groups, **common, fused=cfg["fused"], foreach=cfg["foreach"])
     if name == "reference_adamw":
-        return ReferenceAdamW(groups, **common, state_simulation=cfg["state_simulation"])
+        return ReferenceAdamW(groups, **common, state_simulation=cfg["state_simulation"],
+            state_quantization_granularity=cfg.get("state_quantization_granularity", "per_state_tensor"),
+            state_quantization_block_size=cfg.get("state_quantization_block_size", 2048))
     if name == "reference_muon":
         return ReferenceMuon(groups, **common, state_simulation=cfg["state_simulation"],
             muon_momentum=cfg.get("muon_momentum", .95), muon_nesterov=cfg.get("muon_nesterov", True),
-            muon_ns_steps=cfg.get("muon_ns_steps", 5), muon_ns_coefficients=cfg.get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315]), muon_eps=cfg.get("muon_eps", 1e-7))
+            muon_ns_steps=cfg.get("muon_ns_steps", 5), muon_ns_coefficients=cfg.get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315]), muon_eps=cfg.get("muon_eps", 1e-7),
+            state_quantization_granularity=cfg.get("state_quantization_granularity", "per_state_tensor"),
+            state_quantization_block_size=cfg.get("state_quantization_block_size", 2048))
     if name in {"bnb_adamw32", "bnb_adamw8"}:
         if not torch.cuda.is_available():
             raise RuntimeError(f"{name} requires a supported CUDA device")
