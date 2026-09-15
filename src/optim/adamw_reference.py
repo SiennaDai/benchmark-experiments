@@ -12,6 +12,16 @@ class ReferenceAdamW(torch.optim.Optimizer):
         if state_simulation == "int8_linear_momentum":
             raise ValueError("int8_linear_momentum is only valid for ReferenceMuon")
         super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, state_simulation=state_simulation))
+        self._diagnostic_observer = None
+
+    def set_diagnostic_observer(self, observer):
+        """Install a read-only observer, or ``None`` to disable diagnostics.
+
+        The observer is intentionally outside the state dict and may only read
+        detached tensors supplied by ``step``.  This keeps diagnostics opt-in
+        and preserves ordinary optimizer/checkpoint semantics.
+        """
+        self._diagnostic_observer = observer
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -36,9 +46,14 @@ class ReferenceAdamW(torch.optim.Optimizer):
                 m_hat = m / (1-b1**t)
                 v_hat = v / (1-b2**t)
                 updated = p.float().mul(1-group["lr"]*group["weight_decay"]).addcdiv(m_hat, v_hat.sqrt().add(group["eps"]), value=-group["lr"])
-                p.copy_(updated.to(p.dtype))
                 # Current update uses m/v above.  Simulate lower-precision
                 # persistence only after it, for the next optimizer step.
-                state["exp_avg"] = persist_state(m, group["state_simulation"], "exp_avg")
-                state["exp_avg_sq"] = persist_state(v, group["state_simulation"], "exp_avg_sq")
+                persisted_m = persist_state(m, group["state_simulation"], "exp_avg")
+                persisted_v = persist_state(v, group["state_simulation"], "exp_avg_sq")
+                if self._diagnostic_observer is not None:
+                    self._diagnostic_observer(parameter=p, exp_avg_pre=m, exp_avg_post=persisted_m,
+                        exp_avg_sq_pre=v, exp_avg_sq_post=persisted_v, updated=updated, group=group, step=t)
+                p.copy_(updated.to(p.dtype))
+                state["exp_avg"] = persisted_m
+                state["exp_avg_sq"] = persisted_v
         return loss

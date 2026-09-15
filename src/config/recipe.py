@@ -27,7 +27,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps"}, "logging": {"state_diagnostics"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -123,6 +123,8 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         raise RecipeError("schedule.warmup_updates must satisfy 0 <= W < schedule.total_updates")
     if not 0 <= s["final_lr_ratio"] <= 1:
         raise RecipeError("schedule.final_lr_ratio must be in [0,1]")
+    if "state_diagnostics" in cfg["logging"] and not isinstance(cfg["logging"]["state_diagnostics"], bool):
+        raise RecipeError("logging.state_diagnostics must be bool")
     if e["max_target_tokens"] % m["sequence_length"]:
         raise RecipeError("eval.max_target_tokens must be divisible by sequence_length")
     cfg["derived"] = {"tokens_per_update": tokens_per_update, "total_updates": total_updates,

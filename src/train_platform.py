@@ -20,6 +20,7 @@ from experiment_io import EventWriter, atomic_torch_save, environment_snapshot, 
 from models.llama import Llama
 from optim.lowp_adapter import make_optimizer, optimizer_state_summary
 from optim.state_simulation import persistence_metadata
+from optim.adamw_state_diagnostics import AdamWStateDiagnostics
 
 
 class NonFiniteMetricError(RuntimeError):
@@ -186,8 +187,20 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
     else:
         state_policy = persistence_metadata(cfg["optimizer"]["name"], cfg["optimizer"]["state_simulation"])
         grouping = {"muon_parameters": sum(r["numel"] for r in records if r["group"] == "muon"), "auxiliary_adamw_parameters": sum(r["numel"] for r in records if r["group"] == "auxiliary_adamw"), "muon_tensor_count": sum(r["group"] == "muon" for r in records), "auxiliary_adamw_tensor_count": sum(r["group"] == "auxiliary_adamw" for r in records)}
-        dump_resolved(cfg, run_dir/"resolved_config.json"); write_json(run_dir/"environment.json", environment_snapshot()); write_json(run_dir/"source.json", source_snapshot(root)); write_json(run_dir/"data_manifest.json", {k:v for k,v in manifest.items() if k != "_path"}); write_json(run_dir/"parameters.json", records); write_json(run_dir/"precision.json", {**cfg["precision"], "to_device": to_device, "device": str(device), "optimizer_state_simulation": cfg["optimizer"]["state_simulation"], "state_persistence": state_policy, "roundtrip_state_policy": state_policy["persistence_timing"], "parameter_grouping": grouping})
-    writer = EventWriter(run_dir/"metrics.jsonl", run_id, segment); started = time.monotonic(); status, reason = "completed", None
+        dump_resolved(cfg, run_dir/"resolved_config.json"); write_json(run_dir/"environment.json", environment_snapshot()); write_json(run_dir/"source.json", source_snapshot(root)); write_json(run_dir/"data_manifest.json", {k:v for k,v in manifest.items() if k != "_path"}); write_json(run_dir/"parameters.json", records); write_json(run_dir/"precision.json", {**cfg["precision"], "to_device": to_device, "device": str(device), "optimizer_state_simulation": cfg["optimizer"]["state_simulation"], "state_persistence": state_policy, "roundtrip_state_policy": state_policy["persistence_timing"], "parameter_grouping": grouping, "state_diagnostics": {"enabled": bool(cfg["logging"].get("state_diagnostics", False)), "stream": "state_diagnostics.jsonl", "timing": "detached read-only observation after FP32 moment/current update and after persistence simulation", "percentile_method": "bounded deterministic per-tensor evenly-spaced samples; exact counts/extrema/L2 reductions"}})
+    writer = EventWriter(run_dir/"metrics.jsonl", run_id, segment)
+    state_diagnostics_enabled = bool(cfg["logging"].get("state_diagnostics", False))
+    state_writer = None
+    collector = None
+    if state_diagnostics_enabled:
+        if cfg["optimizer"]["name"] != "reference_adamw":
+            raise ValueError("logging.state_diagnostics currently requires reference_adamw")
+        # Names are only used in the compact selected-landmark artifact.
+        names = {id(parameter): name for name, parameter in model.named_parameters()}
+        collector = AdamWStateDiagnostics(names, tensor_landmarks=(1, 2, 3, 4, 5, 10, 20, 40, 60, 70, 75, 76))
+        optimizer.set_diagnostic_observer(collector.observe)
+        state_writer = EventWriter(run_dir/"state_diagnostics.jsonl", run_id, segment)
+    started = time.monotonic(); status, reason = "completed", None
     divergence = None; last_finite_train_metric = None; active_update = completed; attempted_processed = processed
     print(f"[run] {run_id} | {cfg['optimizer']['name']} | {device} | {cfg['precision']['compute']} | {cfg['derived']['total_updates']} updates | schedule horizon {cfg['derived']['schedule_total_updates']} | {cfg['train']['target_tokens']} tokens")
     writer.write("lifecycle", completed, processed, phase="resume" if resume else "start", wall_clock_elapsed_seconds=prior_elapsed)
@@ -211,10 +224,22 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
             lr = require_finite_metric("learning_rate", learning_rate(update,cfg["derived"]["schedule_total_updates"],cfg["optimizer"]["lr"],cfg["schedule"]["warmup_updates"],cfg["schedule"]["final_lr_ratio"],cfg["schedule"]["name"]))
             for group in optimizer.param_groups: group["lr"] = lr
             optimizer.step(); optimizer.zero_grad(set_to_none=True)
+            # The collector observes detached values created in ReferenceAdamW:
+            # v before persistence and its next-step persisted counterpart.
+            # It runs before event serialization and never mutates scientific state.
+            train_nll = require_finite_metric("train_nll", nll_sum/n_tokens)
+            if collector is not None:
+                diagnostic = collector.finish_update(update=update, processed_target_tokens=processed+n_tokens,
+                    train_nll=train_nll, pre_clip_grad_norm=grad_norm_value, learning_rate=lr)
+                tensor_rows = diagnostic.pop("state_tensor_diagnostics", [])
+                state_writer.write("state_diagnostics", update, processed+n_tokens,
+                    **{key: value for key, value in diagnostic.items() if key not in {"update", "processed_target_tokens"}})
+                for row in tensor_rows:
+                    state_writer.write("state_tensor_diagnostics_tensor", update, processed+n_tokens, **row)
             for name,p in model.named_parameters():
                 _first_nonfinite_tensor_metric(f"parameter:{name}", p)
             completed, processed = update, processed+n_tokens
-            update_elapsed=require_finite_metric("update_elapsed_seconds", time.monotonic()-step_started); train_nll=require_finite_metric("train_nll", nll_sum/n_tokens); tokens_per_second=require_finite_metric("tokens_per_second", n_tokens/update_elapsed); wall_clock_elapsed=require_finite_metric("wall_clock_elapsed_seconds", prior_elapsed+time.monotonic()-started)
+            update_elapsed=require_finite_metric("update_elapsed_seconds", time.monotonic()-step_started); tokens_per_second=require_finite_metric("tokens_per_second", n_tokens/update_elapsed); wall_clock_elapsed=require_finite_metric("wall_clock_elapsed_seconds", prior_elapsed+time.monotonic()-started)
             writer.write("train",completed,processed,lr=lr,train_nll=train_nll,pre_clip_grad_norm=grad_norm_value,clipped=clipped,elapsed_seconds=update_elapsed,update_elapsed_seconds=update_elapsed,tokens_this_update=n_tokens,tokens_per_second=tokens_per_second,wall_clock_elapsed_seconds=wall_clock_elapsed,cuda_peak_allocated=torch.cuda.max_memory_allocated() if device.type=="cuda" else None,cuda_peak_reserved=torch.cuda.max_memory_reserved() if device.type=="cuda" else None)
             last_finite_train_metric = {"update": completed, "train_nll": train_nll}
             if completed % cfg["logging"]["every_updates"] == 0 or completed == cfg["derived"]["total_updates"]: print(f"[train] {completed}/{cfg['derived']['total_updates']} | {processed} tok | loss {nll_sum/n_tokens:.4f} | lr {lr:.3e} | {update_elapsed*1000:.1f} ms/update | {n_tokens/update_elapsed:.0f} tok/s")
