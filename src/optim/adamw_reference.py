@@ -2,11 +2,15 @@
 
 import torch
 
+from .state_simulation import STATE_SIMULATIONS, persist_state
+
 
 class ReferenceAdamW(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0, state_simulation="none"):
-        if state_simulation not in {"none", "bf16_roundtrip"}:
+        if state_simulation not in STATE_SIMULATIONS:
             raise ValueError("unsupported state simulation")
+        if state_simulation == "int8_linear_momentum":
+            raise ValueError("int8_linear_momentum is only valid for ReferenceMuon")
         super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, state_simulation=state_simulation))
 
     @torch.no_grad()
@@ -33,10 +37,8 @@ class ReferenceAdamW(torch.optim.Optimizer):
                 v_hat = v / (1-b2**t)
                 updated = p.float().mul(1-group["lr"]*group["weight_decay"]).addcdiv(m_hat, v_hat.sqrt().add(group["eps"]), value=-group["lr"])
                 p.copy_(updated.to(p.dtype))
-                if group["state_simulation"] == "bf16_roundtrip":
-                    state["exp_avg"] = m.to(torch.bfloat16).float()
-                    state["exp_avg_sq"] = v.to(torch.bfloat16).float()
-                else:
-                    state["exp_avg"] = m
-                    state["exp_avg_sq"] = v
+                # Current update uses m/v above.  Simulate lower-precision
+                # persistence only after it, for the next optimizer step.
+                state["exp_avg"] = persist_state(m, group["state_simulation"], "exp_avg")
+                state["exp_avg_sq"] = persist_state(v, group["state_simulation"], "exp_avg_sq")
         return loss

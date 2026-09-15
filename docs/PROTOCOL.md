@@ -13,3 +13,23 @@ Evaluation sums per-batch mean CE times target count in an FP64 host scalar and 
 Checkpoints are written at complete update boundaries via temporary file plus atomic replace. They include model/optimizer, named parameter order, scientific/data fingerprints, counters, sampler, Python/NumPy/Torch RNG, elapsed time, run ID and next log segment. Resume rejects changed scientific/data fingerprints and appends a new segment.
 
 Reference AdamW computes FP32 moments and updates with epsilon outside the square root. `bf16_roundtrip` uses each unrounded new moment for the current update, then stores BF16-to-FP32 rounded moments for the next update. It is a numerical persistence simulation and has FP32 memory footprint; it is not a bitsandbytes emulation.
+
+## INT8 linear persisted-state simulation
+
+`int8_linear_first_moment`, `int8_linear_second_moment`, and
+`int8_linear_all_moments` apply to Reference AdamW's `exp_avg`, `exp_avg_sq`,
+or both, respectively. `int8_linear_momentum` applies only to a Reference Muon
+hidden-matrix momentum buffer; its auxiliary AdamW state remains FP32. Each
+selected state tensor is independently simulated after its current FP32 update
+and after it has been used for that step's parameter update:
+
+\[
+s=\|x\|_\infty/127,\qquad Q(x)=\operatorname{clamp}(\operatorname{round}(x/s),-127,127)s.
+\]
+
+The all-zero tensor remains zero. Rounding is deterministic nearest rounding;
+there is no stochastic rounding, clipping policy, nonlinear codebook, or fused
+kernel. Dequantized results remain FP32 in this platform, so this tests
+post-update persistence numerics—not optimizer-state memory saving or BF16/INT8
+training kernels. `precision.json` records the selected and intentionally FP32
+state tensors for every run.

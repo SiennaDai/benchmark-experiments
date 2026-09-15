@@ -85,10 +85,15 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         raise RecipeError(f"train.target_tokens must be divisible by {tokens_per_update}")
     if o["name"] not in {"torch_adamw", "reference_adamw", "reference_muon", "bnb_adamw32", "bnb_adamw8"}:
         raise RecipeError("unsupported optimizer.name")
-    if o["state_simulation"] not in {"none", "bf16_roundtrip"}:
+    simulations = {"none", "bf16_roundtrip", "int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_linear_momentum"}
+    if o["state_simulation"] not in simulations:
         raise RecipeError("unsupported optimizer.state_simulation")
     if o["state_simulation"] != "none" and o["name"] not in {"reference_adamw", "reference_muon"}:
         raise RecipeError("state_simulation is only valid for reference_adamw or reference_muon")
+    if o["name"] == "reference_adamw" and o["state_simulation"] == "int8_linear_momentum":
+        raise RecipeError("int8_linear_momentum is only valid for reference_muon")
+    if o["name"] == "reference_muon" and o["state_simulation"] in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments"}:
+        raise RecipeError("AdamW INT8 state simulations are only valid for reference_adamw")
     if not isinstance(o["betas"], list) or len(o["betas"]) != 2:
         raise RecipeError("optimizer.betas must be a two-element array")
     if o["name"] == "reference_muon":

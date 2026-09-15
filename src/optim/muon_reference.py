@@ -6,6 +6,8 @@ performs orthogonalization in FP32 rather than using a BF16 performance kernel.
 """
 import torch
 
+from .state_simulation import STATE_SIMULATIONS, persist_state
+
 
 def zeropower_newton_schulz(matrix, steps=5, coefficients=(3.4445, -4.7750, 2.0315), eps=1e-7):
     """Approximate polar factor using X <- aX + (b A + c A²) X, A=X Xᵀ."""
@@ -32,7 +34,9 @@ class ReferenceMuon(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3, betas=(.9, .999), eps=1e-8, weight_decay=.1,
                  state_simulation="none", muon_momentum=.95, muon_nesterov=True,
                  muon_ns_steps=5, muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7):
-        if state_simulation not in {"none", "bf16_roundtrip"}: raise ValueError("unsupported state simulation")
+        if state_simulation not in STATE_SIMULATIONS: raise ValueError("unsupported state simulation")
+        if state_simulation in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments"}:
+            raise ValueError("AdamW INT8 state simulations are invalid for ReferenceMuon")
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
                         state_simulation=state_simulation, muon_momentum=muon_momentum,
                         muon_nesterov=muon_nesterov, muon_ns_steps=muon_ns_steps,
@@ -54,7 +58,9 @@ class ReferenceMuon(torch.optim.Optimizer):
                     direction = grad.add(momentum, alpha=group["muon_momentum"]) if group["muon_nesterov"] else momentum
                     update = zeropower_newton_schulz(direction, group["muon_ns_steps"], group["muon_ns_coefficients"], group["muon_eps"])
                     p.copy_(p.float().mul(1 - group["lr"] * group["weight_decay"]).add(update, alpha=-group["lr"]).to(p.dtype))
-                    state["muon_momentum"] = momentum.to(torch.bfloat16).float() if group["state_simulation"] == "bf16_roundtrip" else momentum
+                    # Orthogonalization and this step's update use unrounded
+                    # momentum; only the next step sees simulated persistence.
+                    state["muon_momentum"] = persist_state(momentum, group["state_simulation"], "muon_momentum")
                 else:
                     step = state.get("step", 0) + 1; state["step"] = step
                     m = state.get("exp_avg", torch.zeros_like(p, dtype=torch.float32)).mul(group["betas"][0]).add(grad, alpha=1-group["betas"][0])

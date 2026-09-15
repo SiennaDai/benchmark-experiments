@@ -7,3 +7,10 @@ For a hidden matrix gradient \(g_t\), \(B_t=0.95B_{t-1}+g_t\), the Nesterov dire
 Only unique, 2D parameters named under `transformer.h.*` are Muon eligible.  Embedding/LM head (including their tied shared tensor), all RMSNorm gains, and every other non-eligible parameter are deduplicated and use the auxiliary FP32 ReferenceAdamW rule.  This makes grouping inspectable in `parameters.json` and `precision.json`.
 
 `bf16_roundtrip` changes only persisted Muon `muon_momentum`, after the current FP32 update: `momentum.to(torch.bfloat16).float()`.  Auxiliary AdamW `exp_avg` and `exp_avg_sq` remain FP32 in both conditions.  Thus this is a persistence-numerics comparison, not a compressed-memory or hardware-BF16 benchmark.
+
+`int8_linear_momentum` has the same post-update timing, but stores the
+simulation \(Q(B_t)\) using an independent signed max-abs linear scale for each
+Muon momentum matrix: `scale = momentum.abs().max() / 127`, then
+`round(momentum / scale).clamp(-127, 127) * scale`. Zero momentum stays zero.
+The dequantized result remains FP32, and auxiliary AdamW `exp_avg` and
+`exp_avg_sq`, Newton–Schulz arithmetic, parameters, and gradients remain FP32.

@@ -19,6 +19,7 @@ from data.frozen_tokens import DeterministicSampler, FrozenWindows, load_manifes
 from experiment_io import EventWriter, atomic_torch_save, environment_snapshot, restore_rng, rng_state, source_snapshot, write_json
 from models.llama import Llama
 from optim.lowp_adapter import make_optimizer, optimizer_state_summary
+from optim.state_simulation import persistence_metadata
 
 
 def resolve_device(to_device: str) -> torch.device:
@@ -138,9 +139,9 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
         completed, processed, segment, prior_elapsed = ckpt["completed_updates"], ckpt["processed_target_tokens"], ckpt["next_segment_id"], ckpt["elapsed_seconds"]
         restore_rng(ckpt["rng"]); run_id = ckpt["run_id"]
     else:
-        state_policy = ("exp_avg, exp_avg_sq" if cfg["optimizer"]["name"] == "reference_adamw" else "muon_momentum (Muon group only); auxiliary AdamW exp_avg, exp_avg_sq remain FP32" if cfg["optimizer"]["name"] == "reference_muon" else "optimizer-specific")
+        state_policy = persistence_metadata(cfg["optimizer"]["name"], cfg["optimizer"]["state_simulation"])
         grouping = {"muon_parameters": sum(r["numel"] for r in records if r["group"] == "muon"), "auxiliary_adamw_parameters": sum(r["numel"] for r in records if r["group"] == "auxiliary_adamw"), "muon_tensor_count": sum(r["group"] == "muon" for r in records), "auxiliary_adamw_tensor_count": sum(r["group"] == "auxiliary_adamw" for r in records)}
-        dump_resolved(cfg, run_dir/"resolved_config.json"); write_json(run_dir/"environment.json", environment_snapshot()); write_json(run_dir/"source.json", source_snapshot(root)); write_json(run_dir/"data_manifest.json", {k:v for k,v in manifest.items() if k != "_path"}); write_json(run_dir/"parameters.json", records); write_json(run_dir/"precision.json", {**cfg["precision"], "to_device": to_device, "device": str(device), "optimizer_state_simulation": cfg["optimizer"]["state_simulation"], "roundtrip_state_policy": state_policy, "parameter_grouping": grouping})
+        dump_resolved(cfg, run_dir/"resolved_config.json"); write_json(run_dir/"environment.json", environment_snapshot()); write_json(run_dir/"source.json", source_snapshot(root)); write_json(run_dir/"data_manifest.json", {k:v for k,v in manifest.items() if k != "_path"}); write_json(run_dir/"parameters.json", records); write_json(run_dir/"precision.json", {**cfg["precision"], "to_device": to_device, "device": str(device), "optimizer_state_simulation": cfg["optimizer"]["state_simulation"], "state_persistence": state_policy, "roundtrip_state_policy": state_policy["persistence_timing"], "parameter_grouping": grouping})
     writer = EventWriter(run_dir/"metrics.jsonl", run_id, segment); started = time.monotonic(); status, reason = "completed", None
     print(f"[run] {run_id} | {cfg['optimizer']['name']} | {device} | {cfg['precision']['compute']} | {cfg['derived']['total_updates']} updates | schedule horizon {cfg['derived']['schedule_total_updates']} | {cfg['train']['target_tokens']} tokens")
     writer.write("lifecycle", completed, processed, phase="resume" if resume else "start", wall_clock_elapsed_seconds=prior_elapsed)

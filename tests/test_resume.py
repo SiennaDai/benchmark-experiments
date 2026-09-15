@@ -7,6 +7,21 @@ from data.frozen_tokens import DeterministicSampler
 from experiment_io import restore_rng,rng_state
 from optim.adamw_reference import ReferenceAdamW
 
+
+def test_int8_optimizer_state_survives_checkpoint_save_and_resume(tmp_path):
+    parameter = torch.nn.Parameter(torch.tensor([1.0, -2.0]))
+    optimizer = ReferenceAdamW([parameter], lr=.01, state_simulation="int8_linear_all_moments")
+    parameter.grad = torch.tensor([.37, -.11]); optimizer.step()
+    path = tmp_path / "int8-state.pt"
+    torch.save({"parameter": parameter.detach(), "optimizer": optimizer.state_dict()}, path)
+    restored_parameter = torch.nn.Parameter(torch.zeros_like(parameter))
+    restored_optimizer = ReferenceAdamW([restored_parameter], lr=.01, state_simulation="int8_linear_all_moments")
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    restored_parameter.data.copy_(checkpoint["parameter"]); restored_optimizer.load_state_dict(checkpoint["optimizer"])
+    restored_parameter.grad = torch.tensor([.13, .29]); parameter.grad = restored_parameter.grad.clone()
+    optimizer.step(); restored_optimizer.step()
+    assert torch.equal(parameter, restored_parameter)
+
 def test_optimizer_sampler_and_rng_resume_exact():
     def setup():
         random.seed(7);np.random.seed(7);torch.manual_seed(7);p=torch.nn.Parameter(torch.tensor([1.,-2.]));return p,ReferenceAdamW([p],lr=.01),DeterministicSampler(13,5,True)
