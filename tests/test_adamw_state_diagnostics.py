@@ -1,10 +1,11 @@
 import copy, json
+import pytest
 import torch
 
 from config.recipe import load_recipe
 from benchmark_suite import load_suite
 from optim.adamw_reference import ReferenceAdamW
-from optim.adamw_state_diagnostics import AdamWStateDiagnostics
+from optim.adamw_state_diagnostics import AdamWStateDiagnostics, _evenly_spaced_indices, _sample
 
 
 def _step(opt, p, grad):
@@ -55,3 +56,46 @@ def test_diagnostic_recipes_have_short_stop_and_long_schedule():
     assert {k for k in base["optimizer"] if base["optimizer"][k] != configs[1]["optimizer"][k]} == {"state_simulation"}
     suite = load_suite("benchmarks/diagnostic_adamw_int8_mechanism_4xprefix_s0_v1.json")
     assert len(suite["runs"]) == 3 and suite["vary"] == ["optimizer.state_simulation"]
+
+
+@pytest.mark.parametrize("n,limit", [
+    (0, 1024), (7, 1024), (1024, 1024), (1025, 1024),
+    (2**24 + 123, 1024), (2**24 + 123, 1),
+])
+def test_evenly_spaced_indices_are_integer_bounded_and_endpoint_preserving(n, limit):
+    # Exercise n > float32's exact-integer range without allocating a tensor
+    # of that size; the helper is the complete index-construction path.
+    idx = _evenly_spaced_indices(n, limit, "cpu")
+    assert idx.dtype == torch.int64
+    assert idx.numel() == min(n, limit)
+    if n:
+        assert idx.min().item() >= 0
+        assert idx.max().item() < n
+        assert idx[0].item() == 0
+        if limit > 1:
+            assert idx[-1].item() == n - 1
+        assert torch.all(idx[1:] >= idx[:-1])
+    assert torch.equal(idx, _evenly_spaced_indices(n, limit, "cpu"))
+
+
+def test_sample_preserves_small_and_boundary_tensor_endpoints():
+    for n, limit in ((7, 1024), (1024, 1024), (1025, 1024), (9, 1)):
+        value = torch.arange(n)
+        sampled = _sample(value, limit)
+        assert sampled[0].item() == 0
+        if limit > 1:
+            assert sampled[-1].item() == n - 1
+        assert sampled.numel() == min(n, limit)
+
+
+def test_evenly_spaced_indices_reject_invalid_limit():
+    with pytest.raises(ValueError, match="positive"):
+        _evenly_spaced_indices(4, 0, "cpu")
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def test_evenly_spaced_indices_match_cuda_without_float_indexing():
+    n, limit = 2**24 + 123, 1024
+    cpu = _evenly_spaced_indices(n, limit, "cpu")
+    cuda = _evenly_spaced_indices(n, limit, "cuda").cpu()
+    assert torch.equal(cpu, cuda)

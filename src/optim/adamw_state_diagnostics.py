@@ -33,10 +33,33 @@ def _percentiles(values: list[torch.Tensor], names=(50, 90, 99, 99.9)) -> dict:
     return {f"p{str(n).replace('.', '')}": _scalar(torch.quantile(x, n / 100)) for n in names}
 
 
+def _evenly_spaced_indices(n: int, limit: int, device: torch.device | str) -> torch.Tensor:
+    """Return bounded, endpoint-preserving integer sample indices.
+
+    Do not use ``linspace(...).long()`` here.  CUDA's default floating-point
+    linspace loses integer precision for sufficiently large flattened tensors,
+    which can turn a nominal endpoint into an out-of-bounds index.  This
+    construction is integer-only and deterministic.  For two or more samples
+    it includes both endpoints; a one-element sample intentionally selects
+    the first element, matching the bounded sampler contract.
+    """
+    if n < 0:
+        raise ValueError("n must be non-negative")
+    if limit < 1:
+        raise ValueError("limit must be positive")
+    count = min(n, limit)
+    if count == 0:
+        return torch.empty(0, device=device, dtype=torch.int64)
+    if count == 1:
+        return torch.zeros(1, device=device, dtype=torch.int64)
+    return torch.arange(count, device=device, dtype=torch.int64) * (n - 1) // (count - 1)
+
+
 def _sample(value: torch.Tensor, limit=1024) -> torch.Tensor:
     flat = value.detach().reshape(-1)
-    if flat.numel() <= limit: return flat
-    return flat[torch.linspace(0, flat.numel() - 1, limit, device=flat.device).long()]
+    if flat.numel() <= limit:
+        return flat
+    return flat[_evenly_spaced_indices(flat.numel(), limit, flat.device)]
 
 
 class AdamWStateDiagnostics:
