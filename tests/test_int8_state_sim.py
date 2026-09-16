@@ -73,6 +73,48 @@ def test_pinned_bitsandbytes_dynamic_maps_match_reference_construction_values():
     assert signed[-1] == unsigned[-1] == 1
 
 
+def test_four_bit_codebooks_and_linear_range_are_deterministic_and_leave_int8_unchanged():
+    signed = create_bitsandbytes_dynamic_map(signed=True, total_bits=4, max_exponent_bits=3)
+    unsigned = create_bitsandbytes_dynamic_map(signed=False, total_bits=4, max_exponent_bits=3)
+    assert signed.numel() == unsigned.numel() == 16
+    assert torch.allclose(signed, torch.tensor([-.8875, -.6625, -.4375, -.2125, -.0775, -.0325, -.0055, 0., .0055, .0325, .0775, .2125, .4375, .6625, .8875, 1.]))
+    assert torch.allclose(unsigned, torch.tensor([0., .00325, .00775, .02125, .04375, .06625, .08875, .15625, .26875, .38125, .49375, .60625, .71875, .83125, .94375, 1.]))
+    value = torch.tensor([-2., -1., 0., 1., 2.])
+    # torch.round uses deterministic nearest-even ties: +/-1 maps to +/-3 at scale 2/7.
+    assert torch.allclose(int8_linear_roundtrip(value, bits=4), torch.tensor([-2., -6/7, 0., 6/7, 2.]))
+    assert torch.equal(int8_linear_roundtrip(value), int8_linear_roundtrip(value, bits=8))
+    assert torch.equal(int8_blockwise_linear_roundtrip(value, 2), int8_blockwise_linear_roundtrip(value, 2, bits=8))
+
+
+def test_four_bit_blockwise_dynamic_and_linear_persist_only_selected_states():
+    value = torch.tensor([-2., -.2, 0., .2, 2., .01])
+    actual = int8_blockwise_dynamic_roundtrip(value, signed=True, block_size=5, total_bits=4)
+    assert actual.dtype == torch.float32 and actual.shape == value.shape
+    assert torch.equal(actual, int8_blockwise_dynamic_roundtrip(value, signed=True, block_size=5, total_bits=4))
+    matrix, auxiliary = torch.nn.Parameter(torch.ones(2, 2)), torch.nn.Parameter(torch.ones(2))
+    matrix.grad, auxiliary.grad = torch.tensor([[.37, -.11], [.02, .21]]), torch.tensor([.2, -.1])
+    opt = ReferenceMuon([{"params": [matrix], "optimizer_group": "muon", "weight_decay": 0.}, {"params": [auxiliary], "optimizer_group": "auxiliary_adamw", "weight_decay": 0.}], state_simulation="int4_linear_momentum", state_quantization_granularity="blockwise", state_quantization_block_size=2)
+    opt.step()
+    assert torch.equal(opt.state[matrix]["muon_momentum"], int8_blockwise_linear_roundtrip(matrix.grad, 2, bits=4))
+    assert opt.state[auxiliary]["exp_avg"].dtype == opt.state[auxiliary]["exp_avg_sq"].dtype == torch.float32
+
+
+def test_int4_recipes_and_suite_preserve_fixed_4x_protocol():
+    adam = load_recipe(ROOT / "recipes/mini_fp32_reference_adamw_int4_blockwise_dynamic_state_4x_s0.json")
+    muon = load_recipe(ROOT / "recipes/mini_fp32_reference_muon_int4_blockwise_linear_state_4x_s0.json")
+    for cfg in (adam, muon):
+        assert cfg["derived"]["total_updates"] == cfg["derived"]["schedule_total_updates"] == 4096
+        assert cfg["derived"]["tokens_per_update"] == 8192
+        assert cfg["optimizer"]["state_quantization_block_size"] == 2048
+    assert adam["optimizer"]["state_simulation"] == "int4_dynamic_all_moments"
+    assert muon["optimizer"]["state_simulation"] == "int4_linear_momentum"
+    metadata = persistence_metadata("reference_muon", "int4_linear_momentum", quantization_granularity="blockwise")
+    assert metadata["bits"] == 4 and metadata["signed_range"] == [-7, 7]
+    suite = load_suite(ROOT / "benchmarks/mini_optimizer_int4_state_4x_s0_v1.json")
+    configs = [load_recipe(run["recipe"]) for run in suite["runs"]]
+    assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []
+
+
 def test_blockwise_dynamic_roundtrip_handles_signed_unsigned_zero_and_partial_blocks():
     signed = torch.tensor([-2., -.2, 0., .2, 2., .01], dtype=torch.float64)
     unsigned = torch.tensor([0., .001, .1, 1., .01], dtype=torch.float64)

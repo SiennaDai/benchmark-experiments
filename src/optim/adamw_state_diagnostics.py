@@ -70,7 +70,7 @@ class AdamWStateDiagnostics:
 
     def __init__(self, parameter_names: dict[int, str], *, tensor_landmarks=(),
                  quantization_granularity="per_state_tensor", quantization_block_size=2048,
-                 state_simulation="none"):
+                 state_simulation="none", quantization_bits=8):
         self.parameter_names = parameter_names
         self.tensor_landmarks = set(tensor_landmarks)
         if quantization_granularity not in {"per_state_tensor", "blockwise"}:
@@ -80,20 +80,21 @@ class AdamWStateDiagnostics:
         self.quantization_granularity = quantization_granularity
         self.quantization_block_size = quantization_block_size
         self.state_simulation = state_simulation
+        self.quantization_bits = quantization_bits
         self._items = []
 
     def _scales(self, value: torch.Tensor) -> list[torch.Tensor]:
         """Return the exact scale units used by persistence, without mutation."""
         flat = value.detach().float().reshape(-1)
         if self.quantization_granularity == "per_state_tensor":
-            return [flat.abs().max() / 127] if flat.numel() else []
-        divisor = 1 if self.state_simulation in {"int8_dynamic_all_moments", "int8_dynamic_second_moment"} else 127
+            return [flat.abs().max() / (2 ** (self.quantization_bits - 1) - 1)] if flat.numel() else []
+        divisor = 1 if self.state_simulation in {"int8_dynamic_all_moments", "int8_dynamic_second_moment", "int4_dynamic_all_moments"} else 2 ** (self.quantization_bits - 1) - 1
         return [block.abs().max() / divisor for block in flat.split(self.quantization_block_size) if block.numel()]
 
     @torch.no_grad()
     def _dynamic_occupancy(self, values, *, signed: bool):
         """Bounded block-normalized dynamic-codebook occupancy observation."""
-        if self.state_simulation not in {"int8_dynamic_all_moments", "int8_dynamic_second_moment"}:
+        if self.state_simulation not in {"int8_dynamic_all_moments", "int8_dynamic_second_moment", "int4_dynamic_all_moments"}:
             return {}
         samples = []
         for value in values:
@@ -118,7 +119,8 @@ class AdamWStateDiagnostics:
                     "codebook_levels_used_fraction": 0.0, "fraction_mapped_to_zero_code": 0.0,
                     "fraction_mapped_to_smallest_positive_code": 0.0}
         normalized = torch.cat(samples)
-        codebook = create_bitsandbytes_dynamic_map(signed=signed, device=normalized.device)
+        codebook = create_bitsandbytes_dynamic_map(signed=signed, total_bits=self.quantization_bits,
+                                                   max_exponent_bits=self.quantization_bits - 1, device=normalized.device)
         mapped = _nearest_codebook_values(normalized, codebook)
         zero = codebook[torch.searchsorted(codebook, torch.tensor(0., device=codebook.device))]
         positive = codebook[codebook > 0][0]
@@ -181,7 +183,7 @@ class AdamWStateDiagnostics:
                   "post_quant_min": mn(post_mins), "post_quant_min_positive": mn(post_positive), "post_quant_max": mx(post_maxs), "post_quant_mean": _kind(sum_post / n_elements),
                   "global_relative_l2_quantization_error": _kind(math.sqrt(sq_error) / max(math.sqrt(sq_pre), 1e-30)), "global_max_abs_quantization_error": _kind(max_error),
                   "scale_min": mn(scales), "scale_median": scale_percentiles["p50"], "scale_p90": scale_percentiles["p90"], "scale_p99": scale_percentiles["p99"], "scale_max": mx(scales)}
-        if self.state_simulation in {"int8_dynamic_all_moments", "int8_dynamic_second_moment"}:
+        if self.state_simulation in {"int8_dynamic_all_moments", "int8_dynamic_second_moment", "int4_dynamic_all_moments"}:
             output["dynamic_codebook_occupancy"] = self._dynamic_occupancy(pre_list, signed=not include_denominator)
         if include_denominator:
             amp_percentiles = _percentiles(amp_samples, names=(50,90,99,99.9))
@@ -213,3 +215,54 @@ class AdamWStateDiagnostics:
                 rows.append(row)
             result["state_tensor_diagnostics"] = rows
         return result
+
+
+class MuonStateDiagnostics:
+    """Bounded, detached momentum-persistence observer for ReferenceMuon."""
+    schema_version = 1
+
+    def __init__(self, *, quantization_granularity="blockwise", quantization_block_size=2048,
+                 quantization_bits=8):
+        self.quantization_granularity = quantization_granularity
+        self.quantization_block_size = quantization_block_size
+        self.quantization_bits = quantization_bits
+        self._items = []
+
+    @torch.no_grad()
+    def observe(self, *, parameter, momentum_pre, momentum_post, updated, group):
+        self._items.append((momentum_pre.detach(), momentum_post.detach(),
+                            float(parameter.detach().float().square().sum().item()),
+                            float((updated.detach() - parameter.detach()).float().square().sum().item())))
+
+    @torch.no_grad()
+    def finish_update(self, *, update, processed_target_tokens, train_nll, pre_clip_grad_norm, learning_rate):
+        items, self._items = self._items, []
+        count = sum(pre.numel() for pre, *_ in items)
+        zero_pre = sum(int((pre == 0).sum().item()) for pre, *_ in items)
+        zero_post = sum(int((post == 0).sum().item()) for _, post, *_ in items)
+        error_sq = sum(float((post.float() - pre.float()).square().sum().item()) for pre, post, *_ in items)
+        pre_sq = sum(float(pre.float().square().sum().item()) for pre, *_ in items)
+        dots = sum(float((pre.float() * post.float()).sum().item()) for pre, post, *_ in items)
+        post_sq = sum(float(post.float().square().sum().item()) for _, post, *_ in items)
+        p_sq = sum(item[2] for item in items); u_sq = sum(item[3] for item in items)
+        qmax = 2 ** (self.quantization_bits - 1) - 1
+        levels = []
+        for pre, *_ in items:
+            for block in pre.detach().float().reshape(-1).split(self.quantization_block_size):
+                if block.numel():
+                    scale = block.abs().max() / qmax
+                    levels.append(torch.zeros_like(block) if scale.item() == 0 else torch.round(block / scale).clamp(-qmax, qmax))
+        used = torch.unique(torch.cat(levels)).numel() if levels else 0
+        return {"schema_version": self.schema_version, "update": update, "processed_target_tokens": processed_target_tokens,
+                "timing": "after_fp32_momentum_update_and_current_parameter_update; post_persistence_is_next_step_state",
+                "muon_momentum": {"number_of_state_elements": count,
+                    "pre_quant_zero_fraction": zero_pre / count if count else 0.0,
+                    "post_quant_zero_fraction": zero_post / count if count else 0.0,
+                    "newly_zero_fraction": sum(int(((pre != 0) & (post == 0)).sum().item()) for pre, post, *_ in items) / count if count else 0.0,
+                    "global_relative_l2_quantization_error": math.sqrt(error_sq) / max(math.sqrt(pre_sq), 1e-30),
+                    "momentum_l2_norm": math.sqrt(pre_sq),
+                    "cosine_similarity_pre_post": dots / max(math.sqrt(pre_sq * post_sq), 1e-30),
+                    "codebook_occupancy": {"levels_used": int(used), "levels_used_fraction": used / (2 * qmax + 1), "representable_levels": 2 * qmax + 1}},
+                "actual_update": {"global_parameter_norm_before_update": math.sqrt(p_sq), "global_parameter_update_l2_norm": math.sqrt(u_sq),
+                    "relative_parameter_update_norm": math.sqrt(u_sq) / max(math.sqrt(p_sq), 1e-30),
+                    "pre_clip_grad_norm": _scalar(pre_clip_grad_norm), "train_nll": _scalar(train_nll), "learning_rate": _scalar(learning_rate)}}

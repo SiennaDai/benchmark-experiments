@@ -36,7 +36,7 @@ class ReferenceMuon(torch.optim.Optimizer):
                  muon_ns_steps=5, muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7,
                  state_quantization_granularity="per_state_tensor", state_quantization_block_size=2048):
         if state_simulation not in STATE_SIMULATIONS: raise ValueError("unsupported state simulation")
-        if state_simulation in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_dynamic_all_moments", "int8_dynamic_second_moment"}:
+        if state_simulation in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_dynamic_all_moments", "int8_dynamic_second_moment", "int4_dynamic_all_moments"}:
             raise ValueError("AdamW INT8 state simulations are invalid for ReferenceMuon")
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
                         state_simulation=state_simulation, muon_momentum=muon_momentum,
@@ -45,6 +45,11 @@ class ReferenceMuon(torch.optim.Optimizer):
                         state_quantization_granularity=state_quantization_granularity,
                         state_quantization_block_size=state_quantization_block_size)
         super().__init__(params, defaults)
+        self._diagnostic_observer = None
+
+    def set_diagnostic_observer(self, observer):
+        """Install an opt-in detached/read-only observer outside the state dict."""
+        self._diagnostic_observer = observer
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -60,12 +65,17 @@ class ReferenceMuon(torch.optim.Optimizer):
                     momentum = momentum.mul(group["muon_momentum"]).add(grad)
                     direction = grad.add(momentum, alpha=group["muon_momentum"]) if group["muon_nesterov"] else momentum
                     update = zeropower_newton_schulz(direction, group["muon_ns_steps"], group["muon_ns_coefficients"], group["muon_eps"])
-                    p.copy_(p.float().mul(1 - group["lr"] * group["weight_decay"]).add(update, alpha=-group["lr"]).to(p.dtype))
+                    updated = p.float().mul(1 - group["lr"] * group["weight_decay"]).add(update, alpha=-group["lr"])
                     # Orthogonalization and this step's update use unrounded
                     # momentum; only the next step sees simulated persistence.
-                    state["muon_momentum"] = persist_state(momentum, group["state_simulation"], "muon_momentum",
+                    persisted = persist_state(momentum, group["state_simulation"], "muon_momentum",
                         quantization_granularity=group.get("state_quantization_granularity", "per_state_tensor"),
                         quantization_block_size=group.get("state_quantization_block_size", 2048))
+                    if self._diagnostic_observer is not None:
+                        self._diagnostic_observer(parameter=p, momentum_pre=momentum, momentum_post=persisted,
+                                                  updated=updated, group=group)
+                    p.copy_(updated.to(p.dtype))
+                    state["muon_momentum"] = persisted
                 else:
                     step = state.get("step", 0) + 1; state["step"] = step
                     m = state.get("exp_avg", torch.zeros_like(p, dtype=torch.float32)).mul(group["betas"][0]).add(grad, alpha=1-group["betas"][0])

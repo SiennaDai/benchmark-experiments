@@ -20,7 +20,7 @@ from experiment_io import EventWriter, atomic_torch_save, environment_snapshot, 
 from models.llama import Llama
 from optim.lowp_adapter import make_optimizer, optimizer_state_summary
 from optim.state_simulation import persistence_metadata
-from optim.adamw_state_diagnostics import AdamWStateDiagnostics
+from optim.adamw_state_diagnostics import AdamWStateDiagnostics, MuonStateDiagnostics
 
 
 class NonFiniteMetricError(RuntimeError):
@@ -195,14 +195,19 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
     state_writer = None
     collector = None
     if state_diagnostics_enabled:
-        if cfg["optimizer"]["name"] != "reference_adamw":
-            raise ValueError("logging.state_diagnostics currently requires reference_adamw")
+        if cfg["optimizer"]["name"] not in {"reference_adamw", "reference_muon"}:
+            raise ValueError("logging.state_diagnostics requires a reference optimizer")
         # Names are only used in the compact selected-landmark artifact.
         names = {id(parameter): name for name, parameter in model.named_parameters()}
-        collector = AdamWStateDiagnostics(names, tensor_landmarks=(1, 2, 3, 4, 5, 10, 20, 40, 60, 70, 75, 76),
-            quantization_granularity=cfg["optimizer"].get("state_quantization_granularity", "per_state_tensor"),
-            quantization_block_size=cfg["optimizer"].get("state_quantization_block_size", 2048),
-            state_simulation=cfg["optimizer"]["state_simulation"])
+        bits = 4 if cfg["optimizer"]["state_simulation"].startswith("int4_") else 8
+        if cfg["optimizer"]["name"] == "reference_adamw":
+            collector = AdamWStateDiagnostics(names, tensor_landmarks=(1, 2, 3, 4, 5, 10, 20, 40, 60, 70, 75, 76),
+                quantization_granularity=cfg["optimizer"].get("state_quantization_granularity", "per_state_tensor"),
+                quantization_block_size=cfg["optimizer"].get("state_quantization_block_size", 2048),
+                state_simulation=cfg["optimizer"]["state_simulation"], quantization_bits=bits)
+        else:
+            collector = MuonStateDiagnostics(quantization_granularity=cfg["optimizer"].get("state_quantization_granularity", "per_state_tensor"),
+                quantization_block_size=cfg["optimizer"].get("state_quantization_block_size", 2048), quantization_bits=bits)
         optimizer.set_diagnostic_observer(collector.observe)
         state_writer = EventWriter(run_dir/"state_diagnostics.jsonl", run_id, segment)
     started = time.monotonic(); status, reason = "completed", None
