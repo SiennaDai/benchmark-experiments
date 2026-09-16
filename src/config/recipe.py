@@ -85,14 +85,14 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         raise RecipeError(f"train.target_tokens must be divisible by {tokens_per_update}")
     if o["name"] not in {"torch_adamw", "reference_adamw", "reference_muon", "bnb_adamw32", "bnb_adamw8"}:
         raise RecipeError("unsupported optimizer.name")
-    simulations = {"none", "bf16_roundtrip", "int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_linear_momentum", "int8_dynamic_all_moments"}
+    simulations = {"none", "bf16_roundtrip", "int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_linear_momentum", "int8_dynamic_all_moments", "int8_dynamic_second_moment"}
     if o["state_simulation"] not in simulations:
         raise RecipeError("unsupported optimizer.state_simulation")
     if o["state_simulation"] != "none" and o["name"] not in {"reference_adamw", "reference_muon"}:
         raise RecipeError("state_simulation is only valid for reference_adamw or reference_muon")
     if o["name"] == "reference_adamw" and o["state_simulation"] == "int8_linear_momentum":
         raise RecipeError("int8_linear_momentum is only valid for reference_muon")
-    if o["name"] == "reference_muon" and o["state_simulation"] in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_dynamic_all_moments"}:
+    if o["name"] == "reference_muon" and o["state_simulation"] in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_dynamic_all_moments", "int8_dynamic_second_moment"}:
         raise RecipeError("AdamW INT8 state simulations are only valid for reference_adamw")
     granularity = o.get("state_quantization_granularity", "per_state_tensor")
     if granularity not in {"per_state_tensor", "blockwise"}:
@@ -101,9 +101,9 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
     _require_type(block_size, int, "optimizer.state_quantization_block_size")
     if block_size <= 0:
         raise RecipeError("optimizer.state_quantization_block_size must be positive")
-    if granularity == "blockwise" and not (o["state_simulation"].startswith("int8_linear_") or o["state_simulation"] == "int8_dynamic_all_moments"):
+    if granularity == "blockwise" and not (o["state_simulation"].startswith("int8_linear_") or o["state_simulation"] in {"int8_dynamic_all_moments", "int8_dynamic_second_moment"}):
         raise RecipeError("blockwise state quantization requires an INT8 state simulation")
-    if o["state_simulation"] == "int8_dynamic_all_moments" and granularity != "blockwise":
+    if o["state_simulation"] in {"int8_dynamic_all_moments", "int8_dynamic_second_moment"} and granularity != "blockwise":
         raise RecipeError("dynamic INT8 state simulation requires blockwise granularity")
     if not isinstance(o["betas"], list) or len(o["betas"]) != 2:
         raise RecipeError("optimizer.betas must be a two-element array")

@@ -194,6 +194,19 @@ def test_dynamic_adam_persists_both_moments_after_current_fp32_update():
     assert not torch.equal(a, b)
 
 
+def test_dynamic_adam_second_moment_only_preserves_m_and_persists_unsigned_v():
+    a, b = torch.nn.Parameter(torch.tensor([1., -2., 3.])), torch.nn.Parameter(torch.tensor([1., -2., 3.]))
+    plain = ReferenceAdamW([a], lr=.1, betas=(.5, .5))
+    dynamic_v = ReferenceAdamW([b], lr=.1, betas=(.5, .5), state_simulation="int8_dynamic_second_moment",
+                               state_quantization_granularity="blockwise", state_quantization_block_size=2)
+    first = torch.tensor([.37, -.11, .02]); a.grad = first.clone(); b.grad = first.clone()
+    plain.step(); dynamic_v.step()
+    assert torch.equal(a, b)  # current update still used unquantized FP32 moments
+    assert torch.equal(dynamic_v.state[b]["exp_avg"], plain.state[a]["exp_avg"])
+    assert torch.equal(dynamic_v.state[b]["exp_avg_sq"], int8_blockwise_dynamic_roundtrip(
+        plain.state[a]["exp_avg_sq"], signed=False, block_size=2))
+
+
 def test_int8_metadata_makes_selected_and_fp32_states_auditable():
     adam = persistence_metadata("reference_adamw", "int8_linear_first_moment")
     assert adam["bits"] == 8 and adam["granularity"] == "per_state_tensor"
@@ -260,3 +273,25 @@ def test_dynamic_recipe_and_metadata_pin_blockwise_signed_m_unsigned_v():
     assert meta["dynamic_map_provenance"]["exp_avg_sq"]["signed"] is False
     suite = load_suite(ROOT / "benchmarks/mini_adamw_int8_blockwise_dynamic_4x_s0_v1.json")
     assert len(suite["runs"]) == 1
+
+
+def test_dynamic_v_only_recipe_and_ablation_suite_differ_only_by_selected_state():
+    all_moments = load_recipe(ROOT / "recipes/mini_fp32_reference_adamw_int8_blockwise_dynamic_state_4x_s0.json")
+    second_moment = load_recipe(ROOT / "recipes/mini_fp32_reference_adamw_int8_blockwise_dynamic_v_state_4x_s0.json")
+    assert scientific_differences([all_moments, second_moment], ["all", "v_only"], ["optimizer.state_simulation"]) == []
+    ignored = IDENTITY_FIELDS | GENERATED_FIELDS
+    changed = {key for key in set(flatten(all_moments)) | set(flatten(second_moment))
+               if key not in ignored and flatten(all_moments).get(key) != flatten(second_moment).get(key)}
+    assert changed == {"optimizer.state_simulation"}
+    assert second_moment["derived"]["total_updates"] == second_moment["derived"]["schedule_total_updates"] == 4096
+    assert second_moment["derived"]["tokens_per_update"] == 8192
+    meta = persistence_metadata("reference_adamw", "int8_dynamic_second_moment",
+                               quantization_granularity="blockwise", quantization_block_size=2048)
+    assert meta["state_groups"]["reference_adamw"] == {
+        "quantized_state_names": ["exp_avg_sq"], "states_left_fp32": ["exp_avg"]}
+    assert meta["dynamic_map_provenance"]["exp_avg_sq"] == {
+        "codebook": "dynamic", "signed": False, "representable_values": 256}
+    suite = load_suite(ROOT / "benchmarks/mini_adamw_int8_blockwise_dynamic_ablation_4x_s0_v1.json")
+    configs = [load_recipe(run["recipe"]) for run in suite["runs"]]
+    assert len(configs) == 2
+    assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []

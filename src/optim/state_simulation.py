@@ -16,7 +16,7 @@ INT8_LINEAR_SIMULATIONS = frozenset({
     "int8_linear_all_moments",
     "int8_linear_momentum",
 })
-INT8_DYNAMIC_SIMULATIONS = frozenset({"int8_dynamic_all_moments"})
+INT8_DYNAMIC_SIMULATIONS = frozenset({"int8_dynamic_all_moments", "int8_dynamic_second_moment"})
 STATE_SIMULATIONS = frozenset({"none", "bf16_roundtrip", *INT8_LINEAR_SIMULATIONS, *INT8_DYNAMIC_SIMULATIONS})
 QUANTIZATION_GRANULARITIES = frozenset({"per_state_tensor", "blockwise"})
 
@@ -154,8 +154,12 @@ def persist_state(state: torch.Tensor, simulation: str, state_name: str, *,
         return state
     if simulation == "bf16_roundtrip":
         return state.to(torch.bfloat16).float()
-    if simulation == "int8_dynamic_all_moments":
-        if state_name not in {"exp_avg", "exp_avg_sq"}:
+    if simulation in INT8_DYNAMIC_SIMULATIONS:
+        selected_dynamic = {
+            "int8_dynamic_all_moments": {"exp_avg", "exp_avg_sq"},
+            "int8_dynamic_second_moment": {"exp_avg_sq"},
+        }[simulation]
+        if state_name not in selected_dynamic:
             return state
         if quantization_granularity != "blockwise":
             raise ValueError("dynamic INT8 persistence requires blockwise granularity")
@@ -190,6 +194,7 @@ def persistence_metadata(optimizer_name: str, simulation: str, *,
             "int8_linear_second_moment": ["exp_avg_sq"],
             "int8_linear_all_moments": all_states,
             "int8_dynamic_all_moments": all_states,
+            "int8_dynamic_second_moment": ["exp_avg_sq"],
         }.get(simulation)
         if selected is None:
             raise ValueError(f"simulation {simulation} is invalid for {optimizer_name}")

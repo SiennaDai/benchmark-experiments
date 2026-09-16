@@ -87,13 +87,13 @@ class AdamWStateDiagnostics:
         flat = value.detach().float().reshape(-1)
         if self.quantization_granularity == "per_state_tensor":
             return [flat.abs().max() / 127] if flat.numel() else []
-        divisor = 1 if self.state_simulation == "int8_dynamic_all_moments" else 127
+        divisor = 1 if self.state_simulation in {"int8_dynamic_all_moments", "int8_dynamic_second_moment"} else 127
         return [block.abs().max() / divisor for block in flat.split(self.quantization_block_size) if block.numel()]
 
     @torch.no_grad()
     def _dynamic_occupancy(self, values, *, signed: bool):
         """Bounded block-normalized dynamic-codebook occupancy observation."""
-        if self.state_simulation != "int8_dynamic_all_moments":
+        if self.state_simulation not in {"int8_dynamic_all_moments", "int8_dynamic_second_moment"}:
             return {}
         samples = []
         for value in values:
@@ -181,7 +181,7 @@ class AdamWStateDiagnostics:
                   "post_quant_min": mn(post_mins), "post_quant_min_positive": mn(post_positive), "post_quant_max": mx(post_maxs), "post_quant_mean": _kind(sum_post / n_elements),
                   "global_relative_l2_quantization_error": _kind(math.sqrt(sq_error) / max(math.sqrt(sq_pre), 1e-30)), "global_max_abs_quantization_error": _kind(max_error),
                   "scale_min": mn(scales), "scale_median": scale_percentiles["p50"], "scale_p90": scale_percentiles["p90"], "scale_p99": scale_percentiles["p99"], "scale_max": mx(scales)}
-        if self.state_simulation == "int8_dynamic_all_moments":
+        if self.state_simulation in {"int8_dynamic_all_moments", "int8_dynamic_second_moment"}:
             output["dynamic_codebook_occupancy"] = self._dynamic_occupancy(pre_list, signed=not include_denominator)
         if include_denominator:
             amp_percentiles = _percentiles(amp_samples, names=(50,90,99,99.9))

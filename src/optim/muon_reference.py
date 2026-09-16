@@ -36,7 +36,7 @@ class ReferenceMuon(torch.optim.Optimizer):
                  muon_ns_steps=5, muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7,
                  state_quantization_granularity="per_state_tensor", state_quantization_block_size=2048):
         if state_simulation not in STATE_SIMULATIONS: raise ValueError("unsupported state simulation")
-        if state_simulation in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_dynamic_all_moments"}:
+        if state_simulation in {"int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_dynamic_all_moments", "int8_dynamic_second_moment"}:
             raise ValueError("AdamW INT8 state simulations are invalid for ReferenceMuon")
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
                         state_simulation=state_simulation, muon_momentum=muon_momentum,
