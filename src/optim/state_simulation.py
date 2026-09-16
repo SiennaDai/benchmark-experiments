@@ -17,7 +17,7 @@ INT8_LINEAR_SIMULATIONS = frozenset({
     "int8_linear_momentum",
     "int4_linear_momentum",
 })
-INT8_DYNAMIC_SIMULATIONS = frozenset({"int8_dynamic_all_moments", "int8_dynamic_second_moment", "int4_dynamic_all_moments"})
+INT8_DYNAMIC_SIMULATIONS = frozenset({"int8_dynamic_all_moments", "int8_dynamic_second_moment", "int4_dynamic_all_moments", "int4_dynamic_momentum"})
 STATE_SIMULATIONS = frozenset({"none", "bf16_roundtrip", *INT8_LINEAR_SIMULATIONS, *INT8_DYNAMIC_SIMULATIONS})
 QUANTIZATION_GRANULARITIES = frozenset({"per_state_tensor", "blockwise"})
 
@@ -167,12 +167,13 @@ def persist_state(state: torch.Tensor, simulation: str, state_name: str, *,
             "int8_dynamic_all_moments": {"exp_avg", "exp_avg_sq"},
             "int8_dynamic_second_moment": {"exp_avg_sq"},
             "int4_dynamic_all_moments": {"exp_avg", "exp_avg_sq"},
+            "int4_dynamic_momentum": {"muon_momentum"},
         }[simulation]
         if state_name not in selected_dynamic:
             return state
         if quantization_granularity != "blockwise":
             raise ValueError("dynamic INT8 persistence requires blockwise granularity")
-        return int8_blockwise_dynamic_roundtrip(state, signed=state_name == "exp_avg",
+        return int8_blockwise_dynamic_roundtrip(state, signed=state_name != "exp_avg_sq",
                                                 block_size=quantization_block_size,
                                                 total_bits=4 if simulation.startswith("int4_") else 8)
     selected = {
@@ -213,7 +214,7 @@ def persistence_metadata(optimizer_name: str, simulation: str, *,
         untouched = [state for state in all_states if state not in selected]
         groups = {"reference_adamw": {"quantized_state_names": selected, "states_left_fp32": untouched}}
     elif optimizer_name == "reference_muon":
-        if simulation not in {"none", "bf16_roundtrip", "int8_linear_momentum", "int4_linear_momentum"}:
+        if simulation not in {"none", "bf16_roundtrip", "int8_linear_momentum", "int4_linear_momentum", "int4_dynamic_momentum"}:
             raise ValueError(f"simulation {simulation} is invalid for {optimizer_name}")
         selected = ["muon_momentum"] if simulation != "none" else []
         groups = {
@@ -243,6 +244,20 @@ def persistence_metadata(optimizer_name: str, simulation: str, *,
         if quantization_granularity != "blockwise":
             raise ValueError("dynamic INT8 persistence requires blockwise granularity")
         bits = 4 if simulation.startswith("int4_") else 8
+        dynamic_map_provenance = {
+            "source": "bitsandbytes.functional.create_dynamic_map",
+            "implementation": "pinned_pure_torch_transcription",
+            "max_exponent_bits": bits - 1, "total_bits": bits,
+        }
+        if optimizer_name == "reference_muon":
+            dynamic_map_provenance["muon_momentum"] = {
+                "codebook": "dynamic", "signed": True, "representable_values": 2 ** bits,
+            }
+        else:
+            dynamic_map_provenance.update({
+                "exp_avg": {"codebook": "dynamic", "signed": True, "representable_values": 2 ** bits},
+                "exp_avg_sq": {"codebook": "dynamic", "signed": False, "representable_values": 2 ** bits},
+            })
         metadata.update({
             "simulation": f"int{bits}_dynamic_roundtrip", "state_simulation_mode": simulation,
             "quantizer": "bitsandbytes_create_dynamic_map_reference", "bits": bits,
@@ -250,13 +265,7 @@ def persistence_metadata(optimizer_name: str, simulation: str, *,
             "partial_final_block": "supported", "rounding": "nearest_codebook_value",
             "block_scale": "absmax", "persistent_storage_in_platform": "fp32_dequantized_simulation",
             "actual_optimizer_memory_reduction": False,
-            "dynamic_map_provenance": {
-                "source": "bitsandbytes.functional.create_dynamic_map",
-                "implementation": "pinned_pure_torch_transcription",
-                "max_exponent_bits": bits - 1, "total_bits": bits,
-                "exp_avg": {"codebook": "dynamic", "signed": True, "representable_values": 2 ** bits},
-                "exp_avg_sq": {"codebook": "dynamic", "signed": False, "representable_values": 2 ** bits},
-            },
+            "dynamic_map_provenance": dynamic_map_provenance,
         })
     elif simulation == "bf16_roundtrip":
         metadata.update({"quantizer": "bf16_roundtrip", "persistent_storage_in_platform": "fp32_dequantized_simulation",

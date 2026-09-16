@@ -222,11 +222,46 @@ class MuonStateDiagnostics:
     schema_version = 1
 
     def __init__(self, *, quantization_granularity="blockwise", quantization_block_size=2048,
-                 quantization_bits=8):
+                 quantization_bits=8, state_simulation="none"):
         self.quantization_granularity = quantization_granularity
         self.quantization_block_size = quantization_block_size
         self.quantization_bits = quantization_bits
+        self.state_simulation = state_simulation
         self._items = []
+
+    @property
+    def _is_dynamic(self):
+        return self.state_simulation == "int4_dynamic_momentum"
+
+    @torch.no_grad()
+    def _block_observations(self, pre: torch.Tensor):
+        """Read code occupancy and scales from one pre-persistence momentum tensor."""
+        flat = pre.detach().float().reshape(-1)
+        if not flat.numel():
+            return [], [], 0, 0
+        qmax = 2 ** (self.quantization_bits - 1) - 1
+        codebook = (create_bitsandbytes_dynamic_map(signed=True, total_bits=self.quantization_bits,
+                                                    max_exponent_bits=self.quantization_bits - 1,
+                                                    device=flat.device) if self._is_dynamic else None)
+        scales, used_levels = [], set()
+        zero_count = total = 0
+        for block in flat.split(self.quantization_block_size):
+            if not block.numel():
+                continue
+            absmax = block.abs().max()
+            # This is the scale used by the persistence quantizer: absmax for
+            # dynamic maps, and absmax/qmax for uniform signed linear maps.
+            scales.append(absmax if self._is_dynamic else absmax / qmax)
+            safe = absmax if absmax.item() != 0 else torch.ones_like(absmax)
+            if self._is_dynamic:
+                codes = _nearest_codebook_values(block / safe, codebook)
+            else:
+                codes = torch.round(block / (safe / qmax)).clamp(-qmax, qmax)
+            unique = torch.unique(codes)
+            used_levels.update(float(value) for value in unique.detach().cpu().tolist())
+            zero_count += int((codes == 0).sum().item())
+            total += codes.numel()
+        return scales, used_levels, zero_count, total
 
     @torch.no_grad()
     def observe(self, *, parameter, momentum_pre, momentum_post, updated, group):
@@ -245,24 +280,30 @@ class MuonStateDiagnostics:
         dots = sum(float((pre.float() * post.float()).sum().item()) for pre, post, *_ in items)
         post_sq = sum(float(post.float().square().sum().item()) for _, post, *_ in items)
         p_sq = sum(item[2] for item in items); u_sq = sum(item[3] for item in items)
-        qmax = 2 ** (self.quantization_bits - 1) - 1
-        levels = []
+        scales, used_levels, zero_code_count, occupancy_count = [], set(), 0, 0
         for pre, *_ in items:
-            for block in pre.detach().float().reshape(-1).split(self.quantization_block_size):
-                if block.numel():
-                    scale = block.abs().max() / qmax
-                    levels.append(torch.zeros_like(block) if scale.item() == 0 else torch.round(block / scale).clamp(-qmax, qmax))
-        used = torch.unique(torch.cat(levels)).numel() if levels else 0
+            tensor_scales, tensor_levels, tensor_zero, tensor_count = self._block_observations(pre)
+            scales.extend(tensor_scales); used_levels.update(tensor_levels)
+            zero_code_count += tensor_zero; occupancy_count += tensor_count
+        scale_percentiles = _percentiles([scale.reshape(-1) for scale in scales], names=(50, 90, 99))
+        available_levels = 2 ** self.quantization_bits if self._is_dynamic else 2 ** self.quantization_bits - 1
+        pre_norm, post_norm = math.sqrt(pre_sq), math.sqrt(post_sq)
         return {"schema_version": self.schema_version, "update": update, "processed_target_tokens": processed_target_tokens,
                 "timing": "after_fp32_momentum_update_and_current_parameter_update; post_persistence_is_next_step_state",
                 "muon_momentum": {"number_of_state_elements": count,
                     "pre_quant_zero_fraction": zero_pre / count if count else 0.0,
                     "post_quant_zero_fraction": zero_post / count if count else 0.0,
                     "newly_zero_fraction": sum(int(((pre != 0) & (post == 0)).sum().item()) for pre, post, *_ in items) / count if count else 0.0,
-                    "global_relative_l2_quantization_error": math.sqrt(error_sq) / max(math.sqrt(pre_sq), 1e-30),
-                    "momentum_l2_norm": math.sqrt(pre_sq),
-                    "cosine_similarity_pre_post": dots / max(math.sqrt(pre_sq * post_sq), 1e-30),
-                    "codebook_occupancy": {"levels_used": int(used), "levels_used_fraction": used / (2 * qmax + 1), "representable_levels": 2 * qmax + 1}},
+                    "global_relative_l2_quantization_error": math.sqrt(error_sq) / max(pre_norm, 1e-30),
+                    "pre_quant_momentum_l2_norm": pre_norm, "post_quant_momentum_l2_norm": post_norm,
+                    "momentum_l2_norm": pre_norm, "momentum_norm_ratio": post_norm / max(pre_norm, 1e-30),
+                    "cosine_similarity_pre_post": dots / max(pre_norm * post_norm, 1e-30),
+                    "block_scale_min": _scalar(torch.stack(scales).min()) if scales else None,
+                    "block_scale_median": scale_percentiles["p50"], "block_scale_p90": scale_percentiles["p90"],
+                    "block_scale_p99": scale_percentiles["p99"], "block_scale_max": _scalar(torch.stack(scales).max()) if scales else None,
+                    "codebook_occupancy": {"levels_used": len(used_levels), "levels_used_fraction": len(used_levels) / available_levels,
+                                           "representable_levels": available_levels,
+                                           "fraction_mapped_to_zero_code": zero_code_count / occupancy_count if occupancy_count else 0.0}},
                 "actual_update": {"global_parameter_norm_before_update": math.sqrt(p_sq), "global_parameter_update_l2_norm": math.sqrt(u_sq),
                     "relative_parameter_update_norm": math.sqrt(u_sq) / max(math.sqrt(p_sq), 1e-30),
                     "pre_clip_grad_norm": _scalar(pre_clip_grad_norm), "train_nll": _scalar(train_nll), "learning_rate": _scalar(learning_rate)}}

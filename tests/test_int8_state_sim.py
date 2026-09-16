@@ -99,6 +99,24 @@ def test_four_bit_blockwise_dynamic_and_linear_persist_only_selected_states():
     assert opt.state[auxiliary]["exp_avg"].dtype == opt.state[auxiliary]["exp_avg_sq"].dtype == torch.float32
 
 
+def test_muon_int4_dynamic_persists_only_signed_momentum_and_metadata_is_auditable():
+    matrix, auxiliary = torch.nn.Parameter(torch.ones(2, 2)), torch.nn.Parameter(torch.ones(2))
+    matrix.grad, auxiliary.grad = torch.tensor([[.37, -.11], [.02, .21]]), torch.tensor([.2, -.1])
+    opt = ReferenceMuon([{"params": [matrix], "optimizer_group": "muon", "weight_decay": 0.},
+                         {"params": [auxiliary], "optimizer_group": "auxiliary_adamw", "weight_decay": 0.}],
+                        state_simulation="int4_dynamic_momentum", state_quantization_granularity="blockwise",
+                        state_quantization_block_size=2)
+    opt.step()
+    assert torch.equal(opt.state[matrix]["muon_momentum"], int8_blockwise_dynamic_roundtrip(
+        matrix.grad, signed=True, block_size=2, total_bits=4))
+    assert opt.state[auxiliary]["exp_avg"].dtype == opt.state[auxiliary]["exp_avg_sq"].dtype == torch.float32
+    metadata = persistence_metadata("reference_muon", "int4_dynamic_momentum", quantization_granularity="blockwise")
+    assert metadata["bits"] == 4 and metadata["block_size"] == 2048
+    assert metadata["state_groups"]["auxiliary_adamw"]["states_left_fp32"] == ["exp_avg", "exp_avg_sq"]
+    assert metadata["dynamic_map_provenance"]["muon_momentum"] == {
+        "codebook": "dynamic", "signed": True, "representable_values": 16}
+
+
 def test_int4_recipes_and_suite_preserve_fixed_4x_protocol():
     adam = load_recipe(ROOT / "recipes/mini_fp32_reference_adamw_int4_blockwise_dynamic_state_4x_s0.json")
     muon = load_recipe(ROOT / "recipes/mini_fp32_reference_muon_int4_blockwise_linear_state_4x_s0.json")
@@ -111,6 +129,21 @@ def test_int4_recipes_and_suite_preserve_fixed_4x_protocol():
     metadata = persistence_metadata("reference_muon", "int4_linear_momentum", quantization_granularity="blockwise")
     assert metadata["bits"] == 4 and metadata["signed_range"] == [-7, 7]
     suite = load_suite(ROOT / "benchmarks/mini_optimizer_int4_state_4x_s0_v1.json")
+    configs = [load_recipe(run["recipe"]) for run in suite["runs"]]
+    assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []
+
+
+def test_muon_int8_replay_and_int4_dynamic_recipes_share_the_fixed_protocol():
+    replay = load_recipe(ROOT / "recipes/mini_fp32_reference_muon_int8_blockwise_linear_state_4x_s0_replay.json")
+    dynamic = load_recipe(ROOT / "recipes/mini_fp32_reference_muon_int4_blockwise_dynamic_state_4x_s0.json")
+    for cfg in (replay, dynamic):
+        assert cfg["derived"]["total_updates"] == cfg["derived"]["schedule_total_updates"] == 4096
+        assert cfg["derived"]["tokens_per_update"] == 8192
+        assert cfg["optimizer"]["state_quantization_block_size"] == 2048
+        assert cfg["logging"]["state_diagnostics"] is True
+    assert replay["optimizer"]["state_simulation"] == "int8_linear_momentum"
+    assert dynamic["optimizer"]["state_simulation"] == "int4_dynamic_momentum"
+    suite = load_suite(ROOT / "benchmarks/mini_muon_int8_replay_int4_dynamic_4x_s0_v1.json")
     configs = [load_recipe(run["recipe"]) for run in suite["runs"]]
     assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []
 

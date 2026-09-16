@@ -5,7 +5,8 @@ import torch
 from config.recipe import load_recipe
 from benchmark_suite import load_suite
 from optim.adamw_reference import ReferenceAdamW
-from optim.adamw_state_diagnostics import AdamWStateDiagnostics, _evenly_spaced_indices, _sample
+from optim.adamw_state_diagnostics import AdamWStateDiagnostics, MuonStateDiagnostics, _evenly_spaced_indices, _sample
+from optim.muon_reference import ReferenceMuon
 
 
 def _step(opt, p, grad):
@@ -91,6 +92,28 @@ def test_dynamic_v_only_diagnostics_report_unsigned_second_moment_occupancy_with
     assert 0 <= occupancy["fraction_mapped_to_zero_code"] <= 1
     for key, value in before.items():
         assert torch.equal(value, opt.state[p][key])
+
+
+def test_muon_linear_and_dynamic_diagnostics_share_read_only_momentum_schema():
+    for simulation, bits in (("int8_linear_momentum", 8), ("int4_dynamic_momentum", 4)):
+        parameter = torch.nn.Parameter(torch.ones(2, 2))
+        optimizer = ReferenceMuon([{"params": [parameter], "optimizer_group": "muon", "weight_decay": 0.}],
+                                  lr=.1, state_simulation=simulation,
+                                  state_quantization_granularity="blockwise", state_quantization_block_size=2)
+        collector = MuonStateDiagnostics(quantization_block_size=2, quantization_bits=bits,
+                                         state_simulation=simulation)
+        optimizer.set_diagnostic_observer(collector.observe)
+        _step(optimizer, parameter, torch.tensor([[.3, -.5], [.1, .2]]))
+        before = optimizer.state[parameter]["muon_momentum"].clone()
+        result = collector.finish_update(update=1, processed_target_tokens=1, train_nll=1.,
+                                         pre_clip_grad_norm=1., learning_rate=.1)
+        state = result["muon_momentum"]
+        assert state["post_quant_momentum_l2_norm"] >= 0
+        assert 0 <= state["cosine_similarity_pre_post"] <= 1
+        assert state["block_scale_min"] is not None
+        assert state["codebook_occupancy"]["representable_levels"] == (255 if bits == 8 else 16)
+        assert 0 <= state["codebook_occupancy"]["fraction_mapped_to_zero_code"] <= 1
+        assert torch.equal(before, optimizer.state[parameter]["muon_momentum"])
 
 
 def test_denominator_and_zero_edge_cases_are_json_safe():

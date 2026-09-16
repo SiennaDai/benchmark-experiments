@@ -10,8 +10,8 @@ class ReferenceAdamW(torch.optim.Optimizer):
                  state_quantization_granularity="per_state_tensor", state_quantization_block_size=2048):
         if state_simulation not in STATE_SIMULATIONS:
             raise ValueError("unsupported state simulation")
-        if state_simulation == "int8_linear_momentum":
-            raise ValueError("int8_linear_momentum is only valid for ReferenceMuon")
+        if state_simulation in {"int8_linear_momentum", "int4_linear_momentum", "int4_dynamic_momentum"}:
+            raise ValueError("momentum state simulations are only valid for ReferenceMuon")
         super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, state_simulation=state_simulation,
                                      state_quantization_granularity=state_quantization_granularity,
                                      state_quantization_block_size=state_quantization_block_size))
