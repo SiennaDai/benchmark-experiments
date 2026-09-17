@@ -148,6 +148,44 @@ def test_muon_int8_replay_and_int4_dynamic_recipes_share_the_fixed_protocol():
     assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []
 
 
+def test_muon_int4_b256_recipes_change_only_block_size_from_b2048_and_suite_is_compatible():
+    pairs = (
+        ("mini_fp32_reference_muon_int4_blockwise_linear_state_4x_s0.json",
+         "mini_fp32_reference_muon_int4_blockwise_linear_b256_state_4x_s0.json"),
+        ("mini_fp32_reference_muon_int4_blockwise_dynamic_state_4x_s0.json",
+         "mini_fp32_reference_muon_int4_blockwise_dynamic_b256_state_4x_s0.json"),
+    )
+    ignored = IDENTITY_FIELDS | GENERATED_FIELDS
+    for b2048_name, b256_name in pairs:
+        b2048, b256 = (load_recipe(ROOT / "recipes" / name) for name in (b2048_name, b256_name))
+        assert b2048["optimizer"]["state_quantization_block_size"] == 2048
+        assert b256["optimizer"]["state_quantization_block_size"] == 256
+        assert b256["derived"]["total_updates"] == b256["derived"]["schedule_total_updates"] == 4096
+        assert b256["derived"]["tokens_per_update"] == 8192
+        assert b256["data"]["allow_repeated_epochs"] is False
+        changes = {key for key in set(flatten(b2048)) | set(flatten(b256))
+                   if key not in ignored and flatten(b2048).get(key) != flatten(b256).get(key)}
+        assert changes == {"optimizer.state_quantization_block_size"}
+    suite = load_suite(ROOT / "benchmarks/mini_muon_int4_b256_ablation_4x_s0_v1.json")
+    configs = [load_recipe(run["recipe"]) for run in suite["runs"]]
+    assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []
+
+
+def test_b256_blockwise_quantizers_keep_partial_blocks_within_one_momentum_tensor():
+    value = torch.cat((torch.tensor([7.]), torch.full((255,), .5), torch.tensor([2., 1.])))
+    linear = int8_blockwise_linear_roundtrip(value, block_size=256, bits=4)
+    dynamic = int8_blockwise_dynamic_roundtrip(value, signed=True, block_size=256, total_bits=4)
+    # The two-element final block has its own absmax.  It is not padded into
+    # or scaled by the preceding 256-element block.
+    assert linear.shape == dynamic.shape == value.shape
+    assert linear.dtype == dynamic.dtype == torch.float32
+    assert linear[-2] == dynamic[-2] == 2
+    assert linear[-1] != 0 and dynamic[-1] != 0
+    other_tensor = torch.tensor([2., 1.])
+    assert torch.equal(linear[-2:], int8_blockwise_linear_roundtrip(other_tensor, 256, bits=4))
+    assert torch.equal(dynamic[-2:], int8_blockwise_dynamic_roundtrip(other_tensor, signed=True, block_size=256, total_bits=4))
+
+
 def test_blockwise_dynamic_roundtrip_handles_signed_unsigned_zero_and_partial_blocks():
     signed = torch.tensor([-2., -.2, 0., .2, 2., .01], dtype=torch.float64)
     unsigned = torch.tensor([0., .001, .1, 1., .01], dtype=torch.float64)
