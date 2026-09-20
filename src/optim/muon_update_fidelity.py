@@ -154,32 +154,59 @@ def load_snapshot(path: str | Path) -> dict:
     return snapshot
 
 
+def _copy_momentum_to_cpu(momentum: torch.Tensor) -> torch.Tensor:
+    """Make the detached FP32 CPU copy used by the snapshot artifact."""
+    return momentum.detach().to("cpu", torch.float32).clone()
+
+
 class MuonUpdateFidelityObserver:
-    """Optimizer callback that retains detached copies until an update is emitted."""
-    def __init__(self, parameter_names: dict[int, str], *, snapshot_updates=(), quantizers=QUANTIZERS):
+    """Read-only Muon observer with explicit online and snapshot-only modes.
+
+    In online mode, every update is collected and analyzed.  In snapshot-only
+    mode, collection is enabled only at the selected snapshot landmarks; the
+    callback is otherwise a no-op.  Keeping this decision at the update
+    boundary is important because ``observe`` runs once per Muon parameter
+    inside the optimizer step.
+    """
+    def __init__(self, parameter_names: dict[int, str], *, snapshot_updates=(),
+                 quantizers=QUANTIZERS, online_fidelity_enabled: bool = True):
         self.parameter_names = parameter_names
         self.snapshot_updates = set(snapshot_updates)
         self.quantizers = tuple(quantizers)
+        self.online_fidelity_enabled = bool(online_fidelity_enabled)
         self.current_update = None
+        self._collect_current_update = False
         self.items: list[dict] = []
 
     def begin_update(self, update: int) -> None:
         self.current_update = update
+        self._collect_current_update = self.online_fidelity_enabled or update in self.snapshot_updates
+        # A new update must never inherit retained tensors from an incomplete
+        # optimizer step.  This is also useful for callers that reuse an
+        # observer after an interrupted step.
+        self.items.clear()
 
     @torch.no_grad()
     def observe(self, *, parameter, momentum_pre, momentum_post, updated, group) -> None:
+        if not self._collect_current_update:
+            return
         # CPU clone gives snapshot/replay an independent tensor identity.  It is
         # also the only retained object; neither momentum_post nor updated is read.
         self.items.append({"parameter_id": self.parameter_names.get(id(parameter), f"parameter:{id(parameter)}"),
                            "name": self.parameter_names.get(id(parameter), "<unknown>"),
-                           "tensor": momentum_pre.detach().to("cpu", torch.float32).clone()})
+                           "tensor": _copy_momentum_to_cpu(momentum_pre)})
 
     @torch.no_grad()
     def finish_update(self, update: int) -> tuple[list[dict], list[dict]]:
         if self.current_update != update:
             raise RuntimeError("Muon observer update boundary was not set")
         items, self.items = self.items, []
-        rows = analyze_tensors(items, quantizers=self.quantizers)
+        if not self._collect_current_update:
+            return [], []
+        # Snapshot-only mode deliberately performs no quantization or Muon
+        # transform during training.  Those diagnostics are produced by the
+        # existing offline replay path after the run.
+        rows = analyze_tensors(items, quantizers=self.quantizers) if self.online_fidelity_enabled else []
         for row in rows:
             row["update"] = update
         return rows, items if update in self.snapshot_updates else []

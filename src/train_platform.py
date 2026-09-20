@@ -219,7 +219,9 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
         if cfg["optimizer"]["name"] != "reference_muon":
             raise ValueError("Muon update fidelity/snapshots require reference_muon")
         names = {id(parameter): name for name, parameter in model.named_parameters()}
-        fidelity_observer = MuonUpdateFidelityObserver(names, snapshot_updates=snapshot_updates)
+        fidelity_observer = MuonUpdateFidelityObserver(
+            names, snapshot_updates=snapshot_updates,
+            online_fidelity_enabled=fidelity_enabled)
         muon_bytes = sum(record["numel"] for record in records if record["group"] == "muon") * 4
         write_json(run_dir/"muon_update_fidelity_metadata.json", {
             "enabled": fidelity_enabled, "stream": "muon_update_fidelity.jsonl" if fidelity_enabled else None,
