@@ -21,6 +21,7 @@ from models.llama import Llama
 from optim.lowp_adapter import make_optimizer, optimizer_state_summary
 from optim.state_simulation import persistence_metadata
 from optim.adamw_state_diagnostics import AdamWStateDiagnostics, MuonStateDiagnostics
+from optim.muon_update_fidelity import MuonUpdateFidelityObserver, save_snapshot
 
 
 class NonFiniteMetricError(RuntimeError):
@@ -211,6 +212,32 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
                 state_simulation=cfg["optimizer"]["state_simulation"])
         optimizer.set_diagnostic_observer(collector.observe)
         state_writer = EventWriter(run_dir/"state_diagnostics.jsonl", run_id, segment)
+    fidelity_enabled = bool(cfg["logging"].get("muon_update_fidelity", False))
+    snapshot_updates = cfg["logging"].get("muon_momentum_snapshot_updates", [])
+    fidelity_observer = None; fidelity_writer = None
+    if fidelity_enabled or snapshot_updates:
+        if cfg["optimizer"]["name"] != "reference_muon":
+            raise ValueError("Muon update fidelity/snapshots require reference_muon")
+        names = {id(parameter): name for name, parameter in model.named_parameters()}
+        fidelity_observer = MuonUpdateFidelityObserver(names, snapshot_updates=snapshot_updates)
+        muon_bytes = sum(record["numel"] for record in records if record["group"] == "muon") * 4
+        write_json(run_dir/"muon_update_fidelity_metadata.json", {
+            "enabled": fidelity_enabled, "stream": "muon_update_fidelity.jsonl" if fidelity_enabled else None,
+            "snapshot_format": "torch.save {format=muon_momentum_snapshot, version=1, metadata, tensors}; FP32 CPU tensors only; no model checkpoint",
+            "snapshot_updates": snapshot_updates, "snapshot_selection": "full Muon momentum state (no sampling)",
+            "expected_bytes_per_snapshot": muon_bytes,
+            "expected_total_snapshot_bytes": muon_bytes * len(snapshot_updates),
+            "post_muon_exclusion": "non-2D tensors; ReferenceMuon only orthogonalizes explicitly selected 2D Muon matrices",
+            "quantizers": ["int8-linear-b2048", "int4-linear-b2048", "int4-dynamic-b2048"]})
+        # Preserve the existing state-diagnostics callback rather than changing
+        # optimizer behavior or its callback API.
+        previous_observer = collector.observe if collector is not None else None
+        def combined_observer(**kwargs):
+            if previous_observer is not None: previous_observer(**kwargs)
+            fidelity_observer.observe(**kwargs)
+        optimizer.set_diagnostic_observer(combined_observer)
+        if fidelity_enabled:
+            fidelity_writer = EventWriter(run_dir/"muon_update_fidelity.jsonl", run_id, segment)
     started = time.monotonic(); status, reason = "completed", None
     divergence = None; last_finite_train_metric = None; active_update = completed; attempted_processed = processed
     print(f"[run] {run_id} | {cfg['optimizer']['name']} | {device} | {cfg['precision']['compute']} | {cfg['derived']['total_updates']} updates | schedule horizon {cfg['derived']['schedule_total_updates']} | {cfg['train']['target_tokens']} tokens")
@@ -234,6 +261,7 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["train"]["grad_clip_norm"]); grad_norm_value = require_finite_metric("pre_clip_grad_norm", grad_norm); clipped = grad_norm_value > cfg["train"]["grad_clip_norm"]
             lr = require_finite_metric("learning_rate", learning_rate(update,cfg["derived"]["schedule_total_updates"],cfg["optimizer"]["lr"],cfg["schedule"]["warmup_updates"],cfg["schedule"]["final_lr_ratio"],cfg["schedule"]["name"]))
             for group in optimizer.param_groups: group["lr"] = lr
+            if fidelity_observer is not None: fidelity_observer.begin_update(update)
             optimizer.step(); optimizer.zero_grad(set_to_none=True)
             # The collector observes detached values created in ReferenceAdamW:
             # v before persistence and its next-step persisted counterpart.
@@ -247,6 +275,23 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
                     **{key: value for key, value in diagnostic.items() if key not in {"update", "processed_target_tokens"}})
                 for row in tensor_rows:
                     state_writer.write("state_tensor_diagnostics_tensor", update, processed+n_tokens, **row)
+            if fidelity_observer is not None:
+                fidelity_rows, snapshot_tensors = fidelity_observer.finish_update(update)
+                if fidelity_writer is not None:
+                    for row in fidelity_rows:
+                        fidelity_writer.write("muon_update_fidelity", update, processed+n_tokens,
+                                              **{key: value for key, value in row.items() if key != "update"})
+                if snapshot_tensors:
+                    source = source_snapshot(root)
+                    metadata = {"update": update, "source_commit": source["upstream_commit"],
+                                "recipe_fingerprint": cfg["fingerprint"], "data_fingerprint": manifest["fingerprint"],
+                                "seeds": {key: cfg["experiment"][key] for key in ("seed", "data_seed", "algorithm_seed")},
+                                "muon_transform": {"steps": cfg["optimizer"].get("muon_ns_steps", 5),
+                                                   "coefficients": cfg["optimizer"].get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315]),
+                                                   "eps": cfg["optimizer"].get("muon_eps", 1e-7)}}
+                    snapshot_path = run_dir/"muon_momentum_snapshots"/f"update_{update:06d}.pt"
+                    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+                    save_snapshot(snapshot_path, metadata=metadata, tensors=snapshot_tensors)
             for name,p in model.named_parameters():
                 _first_nonfinite_tensor_metric(f"parameter:{name}", p)
             completed, processed = update, processed+n_tokens

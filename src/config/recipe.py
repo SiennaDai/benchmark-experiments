@@ -27,7 +27,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "state_quantization_granularity", "state_quantization_block_size"}, "logging": {"state_diagnostics"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "state_quantization_granularity", "state_quantization_block_size"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -136,6 +136,13 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         raise RecipeError("schedule.final_lr_ratio must be in [0,1]")
     if "state_diagnostics" in cfg["logging"] and not isinstance(cfg["logging"]["state_diagnostics"], bool):
         raise RecipeError("logging.state_diagnostics must be bool")
+    if "muon_update_fidelity" in cfg["logging"] and not isinstance(cfg["logging"]["muon_update_fidelity"], bool):
+        raise RecipeError("logging.muon_update_fidelity must be bool")
+    snapshots = cfg["logging"].get("muon_momentum_snapshot_updates", [])
+    if not isinstance(snapshots, list) or any(not isinstance(x, int) or isinstance(x, bool) or x <= 0 for x in snapshots):
+        raise RecipeError("logging.muon_momentum_snapshot_updates must be a list of positive update integers")
+    if len(set(snapshots)) != len(snapshots):
+        raise RecipeError("logging.muon_momentum_snapshot_updates must not contain duplicates")
     if e["max_target_tokens"] % m["sequence_length"]:
         raise RecipeError("eval.max_target_tokens must be divisible by sequence_length")
     cfg["derived"] = {"tokens_per_update": tokens_per_update, "total_updates": total_updates,
