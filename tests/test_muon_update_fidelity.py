@@ -28,9 +28,11 @@ def test_update_analysis_calls_exact_production_muon_transform(monkeypatch):
 
 def test_observer_does_not_perturb_optimizer_state_parameters_or_rng():
     initial = torch.tensor([[1., 2., -3.], [.5, -.2, 4.]])
-    grad = torch.tensor([[.2, -.1, .3], [.4, -.5, .6]])
+    features = torch.tensor([[.2, -.1, .3], [.4, -.5, .6]])
     def run(enabled):
-        p = torch.nn.Parameter(initial.clone()); p.grad = grad.clone()
+        p = torch.nn.Parameter(initial.clone())
+        loss = (p * features).square().mean(); loss.backward()
+        gradient = p.grad.detach().clone()
         opt = ReferenceMuon([{"params": [p], "optimizer_group": "muon", "weight_decay": .1,
                               "state_quantization_granularity": "blockwise"}], state_simulation="int4_dynamic_momentum")
         if enabled:
@@ -38,13 +40,14 @@ def test_observer_does_not_perturb_optimizer_state_parameters_or_rng():
             observer.begin_update(1); opt.set_diagnostic_observer(observer.observe)
         opt.step()
         if enabled: observer.finish_update(1)
-        return p.detach().clone(), copy.deepcopy(opt.state_dict()), torch.rand(4)
+        return float(loss.detach()), gradient, p.detach().clone(), copy.deepcopy(opt.state_dict()), torch.rand(4)
     torch.manual_seed(123); enabled = run(True)
     torch.manual_seed(123); disabled = run(False)
-    assert torch.equal(enabled[0], disabled[0])
-    assert enabled[1].keys() == disabled[1].keys()
-    assert torch.equal(enabled[1]["state"][0]["muon_momentum"], disabled[1]["state"][0]["muon_momentum"])
+    assert enabled[0] == disabled[0] and torch.equal(enabled[1], disabled[1])
     assert torch.equal(enabled[2], disabled[2])
+    assert enabled[3].keys() == disabled[3].keys()
+    assert torch.equal(enabled[3]["state"][0]["muon_momentum"], disabled[3]["state"][0]["muon_momentum"])
+    assert torch.equal(enabled[4], disabled[4])
 
 
 def test_offline_quantizers_match_training_persistence_paths():
