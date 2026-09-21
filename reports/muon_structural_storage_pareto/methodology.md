@@ -1,0 +1,9 @@
+# Methodology
+
+For M in R^(m x n), structural storage is 4mn + b_U mk + b_sigma k + b_V nk bits. Metadata-inclusive storage adds 32 bits per b2048 residual block and 152 fixed decoder bits (dimensions, rank, precision labels, quantizer family, and block size). FP32 baseline is 32mn bits.
+
+The structural reconstruction is Mhat = cast(U_k) cast(Sigma_k) cast(V_k)^T + Q4(M-M_k). The production b2048 dynamic quantizer and zeropower_newton_schulz are called on detached copies. K=5 and exact polar metrics are computed against the original FP32 snapshot. Pareto filtering uses lower metadata-inclusive storage and higher fidelity. Whole-optimizer totals are not inferred because auxiliary AdamW state is not present in these Muon-only snapshots.
+
+Idealized payload counts one INT4 value per residual element and factor counts b_U mk + b_sigma k + b_V nk. Metadata-inclusive counts one FP32 absmax scale per ceil(mn/2048) residual block plus 152 fixed bits (two dimensions, rank, three factor precision identifiers, quantizer family, and block size); this is an explicit accounting convention, not a claim about a kernel layout. BF16 and FP16 both use 16 bits in the idealized accounting but are evaluated as separate numerical casts. The direct INT4 and INT8 rows are idealized state-storage equivalents, not measured allocator usage.
+
+Global rows report both state-size-weighted metrics and unweighted mean/median. Pareto objectives minimize storage ratio and maximize cosine; relative-L2 frontiers minimize both storage and error. Adaptive-rank rows choose the smallest rank in {1,2,4,8,16} meeting the per-tensor target when reachable; unreachable tensors use rank 16 and are counted explicitly, so the resulting policy is an oracle/fallback summary rather than a claim that the target was attained.
