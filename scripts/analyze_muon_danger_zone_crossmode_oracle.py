@@ -344,7 +344,13 @@ def main() -> None:
     cross = [r for r in restoration_rows if r["component"] == "danger_cross"]
     full = [r for r in restoration_rows if r["component"] == "danger_full"]
     def mean_filtered(rows, field, **filters):
-        values = [float(r[field]) for r in rows if all(r.get(k) == str(v) for k, v in filters.items()) and finite(r.get(field))]
+        def matches(row, key, wanted):
+            actual = row.get(key)
+            try:
+                return abs(float(actual) - float(wanted)) < 1e-9
+            except (TypeError, ValueError):
+                return actual == str(wanted)
+        values = [float(r[field]) for r in rows if all(matches(r, k, v) for k, v in filters.items()) and finite(r.get(field))]
         return sum(values) / len(values) if values else None
     energy_diag = mean_filtered(matched_energy_rows, "update_cosine_gain", selection="diagonal", budget_fraction=0.01)
     energy_cross = mean_filtered(matched_energy_rows, "update_cosine_gain", selection="cross", budget_fraction=0.01)
