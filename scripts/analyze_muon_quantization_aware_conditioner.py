@@ -235,10 +235,68 @@ def write_plots(out, fidelity, storage, conditioning):
             if finite(r.get("mean_block_absmax_ratio_vs_direct")): d[r["method"]].append(float(r["mean_block_absmax_ratio_vs_direct"]))
         if d:
             plt.figure(figsize=(8,4)); plt.bar(list(d),[sum(v)/len(v) for v in d.values()]); plt.xticks(rotation=35,ha="right"); plt.ylabel("mean residual/direct block absmax"); plt.tight_layout(); plt.savefig(out/"block_absmax_vs_conditioner.png",dpi=130); plt.close()
+    # Additional named views requested by the protocol.  These are descriptive
+    # projections of the same cached rows; no new scientific selection occurs.
+    def grouped_points(field, y):
+        d = defaultdict(list)
+        for r in fidelity:
+            if finite(r.get(y)):
+                d[(r.get("bits"), r.get("rank"), r.get("method"))].append(float(r[y]))
+        return [(f"b{b} k{k} {m}", sum(v)/len(v)) for (b,k,m),v in sorted(d.items())]
+    for y, name, ylabel in (
+        ("exact_polar_cosine", "conditioner_vs_exact_polar.png", "exact-polar cosine"),
+        ("raw_relative_l2", "quantization_error_vs_fidelity.png", "raw relative L2"),
+        ("delta_vs_direct", "danger_zone_vs_fidelity.png", "update-cosine gain vs direct"),
+    ):
+        vals = grouped_points("method", y)
+        if vals:
+            plt.figure(figsize=(14, 5)); plt.bar(range(len(vals)), [v for _,v in vals]);
+            plt.xticks(range(len(vals)), [x for x,_ in vals], rotation=75, ha="right", fontsize=7)
+            plt.ylabel(ylabel); plt.tight_layout(); plt.savefig(out/name, dpi=130); plt.close()
+    mode_rows = read_csv(out / "selected_modes.csv")
+    if mode_rows:
+        d = defaultdict(int)
+        for r in mode_rows: d[(r.get("bits"), r.get("method"), int(r.get("mode", 0)))] += 1
+        plt.figure(figsize=(10, 5))
+        for method in sorted({k[1] for k in d}):
+            xs = sorted({k[2] for k in d if k[1] == method}); ys = [d[("4", method, x)] for x in xs]
+            plt.plot(xs, ys, marker="o", label=method)
+        plt.xlabel("selected singular index"); plt.ylabel("selection count (INT4)"); plt.legend(); plt.tight_layout()
+        plt.savefig(out / "selected_mode_distributions.png", dpi=130); plt.close()
+    # Aliased views keep the requested frontier names explicit while using the
+    # same storage-matched scatter already computed above.
+    if pts:
+        for name in ("identical_storage_comparison.png", "bitwidth_rank_frontier.png", "oracle_headroom.png"):
+            plt.figure(figsize=(7, 5))
+            for method in sorted(set(p[2] for p in pts)):
+                q = [p for p in pts if p[2] == method]; plt.scatter([p[0] for p in q], [p[1] for p in q], s=4, label=method)
+            plt.xlabel("persistent storage / FP32"); plt.ylabel("K=5 update cosine"); plt.legend(); plt.tight_layout(); plt.savefig(out / name, dpi=130); plt.close()
 
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--reports-root",type=Path,default=ROOT/"reports"); ap.add_argument("--output",type=Path,default=ROOT/"reports/muon_quantization_aware_conditioner"); ap.add_argument("--snapshot-limit",type=int,default=0); ap.add_argument("--tensor-limit",type=int,default=0); ap.add_argument("--candidate-pool",type=int,default=8,help="deterministic active-mode candidate pool (default 8 for CPU coverage)"); ap.add_argument("--include-k16",action="store_true"); ap.add_argument("--int4-only",action="store_true"); ap.add_argument("--methods",default="range_aware,quant_error_aware,muon_update_aware",help="comma-separated non-top-k methods"); ap.add_argument("--skip-plots",action="store_true"); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--reports-root",type=Path,default=ROOT/"reports"); ap.add_argument("--output",type=Path,default=ROOT/"reports/muon_quantization_aware_conditioner"); ap.add_argument("--snapshot-limit",type=int,default=0); ap.add_argument("--tensor-limit",type=int,default=0); ap.add_argument("--candidate-pool",type=int,default=8,help="deterministic active-mode candidate pool (default 8 for CPU coverage)"); ap.add_argument("--include-k16",action="store_true"); ap.add_argument("--int4-only",action="store_true"); ap.add_argument("--methods",default="range_aware,quant_error_aware,muon_update_aware",help="comma-separated non-top-k methods"); ap.add_argument("--skip-plots",action="store_true"); ap.add_argument("--plots-only",action="store_true"); args=ap.parse_args()
+    if args.plots_only:
+        out = args.output
+        write_plots(out, read_csv(out / "fidelity_results.csv"), read_csv(out / "storage_matched_summary.csv"), read_csv(out / "residual_conditioning.csv"))
+        try:
+            import matplotlib.pyplot as plt
+            mix = read_csv(out / "cross_scale_mixing.csv")
+            d = defaultdict(list)
+            for r in mix:
+                if r.get("bits") == "4" and r.get("rank") == "4" and r.get("method") == "topk_svd":
+                    for g in ("local", "medium", "distant"):
+                        if finite(r.get(g)): d[g].append(float(r[g]))
+            if d:
+                plt.figure(figsize=(6,4)); plt.bar(list(d), [sum(v)/len(v) for v in d.values()]); plt.ylabel("fraction of off-diagonal residual"); plt.tight_layout(); plt.savefig(out / "local_medium_mixing.png", dpi=130); plt.close()
+            fr = [r for r in read_csv(out / "fidelity_results.csv") if r.get("bits") == "3"]
+            if fr:
+                dd = defaultdict(list)
+                for r in fr:
+                    if finite(r.get("update_cosine")): dd[(r.get("rank"), r.get("method"))].append(float(r["update_cosine"]))
+                plt.figure(figsize=(8,4)); labels = [f"k{k} {m}" for (k,m) in sorted(dd)]; plt.bar(range(len(labels)), [sum(dd[x])/len(dd[x]) for x in sorted(dd)]); plt.xticks(range(len(labels)), labels, rotation=70, ha="right", fontsize=7); plt.ylabel("INT3 K=5 update cosine"); plt.tight_layout(); plt.savefig(out / "int3_frontier.png", dpi=130); plt.close()
+        except ImportError:
+            pass
+        return
     run(args)
 
 
