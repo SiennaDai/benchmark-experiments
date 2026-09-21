@@ -1,0 +1,4 @@
+target_fraction,rank,iterations,oversampling,initialization,aggregate_fraction_of_exact_gain,aggregate_update_cosine,tensor_count
+0.8,1,2,0,canonical,1.0002938743694585,0.8066771582596832,300
+0.9,1,2,0,canonical,1.0002938743694585,0.8066771582596832,300
+0.95,1,2,0,canonical,1.0002938743694585,0.8066771582596832,300
