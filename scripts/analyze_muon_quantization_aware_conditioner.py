@@ -238,7 +238,7 @@ def write_plots(out, fidelity, storage, conditioning):
 
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--reports-root",type=Path,default=ROOT/"reports"); ap.add_argument("--output",type=Path,default=ROOT/"reports/muon_quantization_aware_conditioner"); ap.add_argument("--snapshot-limit",type=int,default=0); ap.add_argument("--tensor-limit",type=int,default=0); ap.add_argument("--candidate-pool",type=int,default=32); ap.add_argument("--include-k16",action="store_true"); ap.add_argument("--int4-only",action="store_true"); ap.add_argument("--methods",default="range_aware,quant_error_aware,muon_update_aware",help="comma-separated non-top-k methods"); ap.add_argument("--skip-plots",action="store_true"); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--reports-root",type=Path,default=ROOT/"reports"); ap.add_argument("--output",type=Path,default=ROOT/"reports/muon_quantization_aware_conditioner"); ap.add_argument("--snapshot-limit",type=int,default=0); ap.add_argument("--tensor-limit",type=int,default=0); ap.add_argument("--candidate-pool",type=int,default=8,help="deterministic active-mode candidate pool (default 8 for CPU coverage)"); ap.add_argument("--include-k16",action="store_true"); ap.add_argument("--int4-only",action="store_true"); ap.add_argument("--methods",default="range_aware,quant_error_aware,muon_update_aware",help="comma-separated non-top-k methods"); ap.add_argument("--skip-plots",action="store_true"); args=ap.parse_args()
     run(args)
 
 
