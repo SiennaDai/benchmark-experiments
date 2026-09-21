@@ -167,6 +167,43 @@ def make_plots(out: Path, energy_rows: list[dict], restore_rows: list[dict],
     plt.scatter(xs, ys, s=8); plt.xlabel("block residual energy fraction"); plt.ylabel("update cosine gain"); plt.title("Block energy vs recovery")
     plt.tight_layout(); plt.savefig(out / "block_energy_vs_restoration.png", dpi=140); plt.close()
 
+    # Off-diagonal energy versus the persistent polar-limit error.
+    by_tensor = {}
+    for row in energy_rows:
+        key = (row["seed"], row["update"], row["parameter_id"])
+        by_tensor.setdefault(key, {"offdiag": 0.0, "total": 0.0,
+                                   "polar_error": None})
+        if row.get("block") in ("HM", "HT", "MH", "MT", "TH", "TM"):
+            by_tensor[key]["offdiag"] += float(row.get("energy_fraction") or 0.0)
+        if row.get("block") == "HH":
+            by_tensor[key]["total"] = 1.0
+    for row in grouped_rows:
+        if row.get("group") == "all_offdiag" and row.get("readout") == "production":
+            key = (row["seed"], row["update"], row["parameter_id"])
+            by_tensor.setdefault(key, {})["polar_error"] = 1.0 - float(row.get("baseline_polar_cosine") or 1.0)
+    xs = [v["offdiag"] for v in by_tensor.values() if v.get("polar_error") is not None]
+    ys = [v["polar_error"] for v in by_tensor.values() if v.get("polar_error") is not None]
+    plt.figure(figsize=(7, 5)); plt.scatter(xs, ys, s=8); plt.xlabel("off-diagonal primary residual fraction"); plt.ylabel("exact-polar update error")
+    plt.title("Off-diagonal spectral energy vs polar-limit error"); plt.tight_layout(); plt.savefig(out / "offdiag_energy_vs_polar_error.png", dpi=140); plt.close()
+
+    # Layer-level dominant block frequency, computed before intervention results
+    # are interpreted.  Parameter names retain the original tensor identity.
+    layer_counts = defaultdict(lambda: defaultdict(int))
+    for row in restore_rows:
+        if row.get("readout") != "production":
+            continue
+        layer = str(row["parameter_name"]).split(".")[:2]
+        layer_name = ".".join(layer) if layer else "<unknown>"
+        layer_counts[layer_name][row["block"]] += 1 if float(row.get("update_cosine_gain") or 0.0) == max(
+            float(x.get("update_cosine_gain") or 0.0) for x in restore_rows
+            if x.get("readout") == "production" and x.get("seed") == row.get("seed")
+            and x.get("update") == row.get("update") and x.get("parameter_id") == row.get("parameter_id")) else 0
+    labels = sorted(layer_counts)
+    dominant = [max(layer_counts[layer], key=layer_counts[layer].get) if layer_counts[layer] else "none" for layer in labels]
+    counts = [layer_counts[layer][block] for layer, block in zip(labels, dominant)]
+    plt.figure(figsize=(10, 5)); plt.bar(labels, counts); plt.xticks(rotation=70, ha="right"); plt.ylabel("dominant-block count")
+    plt.title("Dominant primary spectral block by layer"); plt.tight_layout(); plt.savefig(out / "per_layer_dominant_block.png", dpi=140); plt.close()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
