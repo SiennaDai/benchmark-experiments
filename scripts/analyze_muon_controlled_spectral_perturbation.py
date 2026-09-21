@@ -180,7 +180,8 @@ def make_plots(out: Path, head_tail: list[dict], sv: list[dict], rot: list[dict]
     layer_values = {}
     for r in head_tail:
         if r["band"] == "tail" and r["epsilon"] == 0.01:
-            layer_values.setdefault(str(r["parameter_id"]).split(".")[0], []).append(r["update_relative_l2"])
+            parts = str(r["parameter_id"]).split(".")
+            layer_values.setdefault(".".join(parts[:3]) if len(parts) >= 3 else parts[0], []).append(r["update_relative_l2"])
     labels = sorted(layer_values); plt.figure(figsize=(8, 5)); plt.boxplot([layer_values[x] for x in labels], labels=labels, showfliers=False)
     plt.xticks(rotation=30, ha="right"); plt.ylabel("tail rotation post-Muon relative L2"); plt.tight_layout(); plt.savefig(out / "per_layer_sensitivity_distribution.png", dpi=140); plt.close()
     plt.figure(figsize=(7, 5)); plt.bar([r["feature"] for r in corr_rows], [r["spearman"] or 0 for r in corr_rows]); plt.xticks(rotation=30, ha="right"); plt.ylabel("Spearman correlation"); plt.tight_layout(); plt.savefig(out / "sensitivity_correlations.png", dpi=140); plt.close()
@@ -243,13 +244,28 @@ def main() -> None:
     ratio_by_key = {(r["seed"], r["update"], r["parameter_id"], r["epsilon"]): r["tail_head_update_error_ratio"] for r in ratios}
     for r in head_tail:
         r["tail_head_update_error_ratio"] = ratio_by_key.get((r["seed"], r["update"], r["parameter_id"], r["epsilon"]))
+    # Controlled sensitivity features are computed from the fixed epsilon=.01
+    # intervention, after the representative set itself was selected.
+    controlled_features = {}
+    for r in head_tail:
+        if r["band"] == "tail" and r["epsilon"] == 0.01 and finite(r.get("update_relative_l2")):
+            controlled_features.setdefault((r["seed"], r["update"], r["parameter_id"]), {})["tail_rotation_sensitivity"] = r["update_relative_l2"]
+        if r["band"] == "head" and r["epsilon"] == 0.01 and finite(r.get("update_relative_l2")):
+            controlled_features.setdefault((r["seed"], r["update"], r["parameter_id"]), {})["head_rotation_sensitivity"] = r["update_relative_l2"]
+    for r in sv_rows:
+        if r["band"] == "tail" and r["epsilon"] == 0.01 and finite(r.get("update_relative_l2")):
+            controlled_features.setdefault((r["seed"], r["update"], r["parameter_id"]), {})["tail_singular_value_sensitivity"] = r["update_relative_l2"]
+    for r in ratios:
+        controlled_features.setdefault((r["seed"], r["update"], r["parameter_id"]), {})["tail_head_sensitivity_ratio"] = r["tail_head_update_error_ratio"] if r["epsilon"] == 0.01 else controlled_features.get((r["seed"], r["update"], r["parameter_id"]), {}).get("tail_head_sensitivity_ratio")
     corr_rows = []
-    for feature in ("effective_condition_number", "tail_subspace_proxy", "tail_singular_value_error_fraction", "tail_subspace_mixing_fraction"):
-        if feature == "tail_subspace_proxy":
+    for feature in ("effective_condition_number", "tail_subspace_proxy", "tail_rotation_sensitivity", "tail_singular_value_sensitivity", "tail_head_sensitivity_ratio", "tail_singular_value_error_fraction", "tail_subspace_mixing_fraction"):
+        if feature in {"tail_subspace_proxy", "tail_rotation_sensitivity", "tail_singular_value_sensitivity", "tail_head_sensitivity_ratio"}:
             values = {}
-            for x in head_tail:
-                if x["band"] == "tail" and x["epsilon"] == 0.01 and finite(x.get("update_relative_l2")):
-                    values[(x["seed"], x["update"], x["parameter_id"])] = x["update_relative_l2"]
+            for item, features in controlled_features.items():
+                if feature == "tail_subspace_proxy":
+                    values[item] = features.get("tail_rotation_sensitivity")
+                else:
+                    values[item] = features.get(feature)
             work = [r | {feature: values.get((r["seed"], r["update"], r["parameter_id"]))} for r in baseline_rows]
         else: work = baseline_rows
         corr_rows.append({"quantizer": QUANTIZER} | correlation(work, feature, "actual_update_error"))
