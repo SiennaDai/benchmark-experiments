@@ -1,0 +1,2 @@
+labels,gain,threshold_fraction,positive_gain_total,danger_gain,start_log10,end_log10
+"['[-3,-2.5)', '[-2.5,-2)']","[0.01498103141784668, 0.12569773197174072]",0.5,0.2654775381088257,0.1406787633895874,-3.0,-2.0
