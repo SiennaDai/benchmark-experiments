@@ -1,0 +1,4 @@
+feature,target,sample_count,pearson,spearman
+scale_reduction_ratio,update_cosine_gain,2700,-0.7528234098043097,-0.8307032378650989
+danger_error_fraction,update_cosine_gain,2700,0.6749699197873964,0.673348464870236
+rank,update_cosine_gain,2700,0.08379479015069075,0.3889460957249636
