@@ -1,0 +1,11 @@
+# Methodology
+
+The study uses 300 formal 2-D momentum matrices from two seeds and five landmarks, with four unchanged representation recipes: direct dynamic INT4; structural top-8 BF16 plus practical p98/global Lloyd-Max scalar INT3; structural INT4 residual; and structural 64-word 2-D INT3 VQ. Reconstructions are rebuilt from the prior recipes and checked against prior cached raw and production K=5 metrics. No quantizer is added or tuned.
+
+The canonical transform is the production `zeropower_newton_schulz` function. Its polynomial spectral map is composed for five iterations after matrix-dependent Frobenius normalization. The analytic derivative differentiates both the polynomial map and that normalization. A frozen-normalization derivative is retained only as an ablation. Tall matrices are represented with compact SVD left leakage; wide matrices use the transposed/right-row-space counterpart. Exact polar uses compact reduced SVD and the partial polar convention.
+
+K=5 JVP uses `torch.func.jvp` on the production function with fixed E, with no derivative through quantization. Finite differences perturb M by epsilon E and compare secants with the analytical derivative. Selected checks use 30 tensor instances across all four methods for JVP and polar, and 12 instances across methods for finite-difference curves. Full-set first-order metrics and correlations use all 1200 method/tensor pairs.
+
+Divided differences use the derivative limit when singular values differ by at most 1e-7 times their local scale. Leakage uses f_i/x_i with machine-tiny flooring; rank-deficient cases are flagged by sigma-min/condition metrics and may be unreliable. Mode bands reuse active sigma/sigma-max >= 1e-6 and 10% head/centered-middle/tail definitions. Pairwise gap and sum scores are energy-weighted sensitivities using the skew SVD-coordinate error. They are descriptive, not causal bounds.
+
+Correlation and small log-linear models are descriptive. Held-out-seed and leave-one-method-out fits are performed without feature normalization leakage; no significance tests are claimed because tensor and landmark observations repeat. Exact-polar and derivative ablations do not alter production behavior. Group-wise study evidence is only referenced from its prior summary and not pooled or recomputed.

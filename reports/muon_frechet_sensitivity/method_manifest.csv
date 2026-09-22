@@ -1,0 +1,5 @@
+method,rank,description,source
+structural_scalar_int3_p98_k8,8,BF16 top-8 + p98/b2048 fixed global Lloyd-Max scalar INT3,prior canonical reports; unchanged quantizer/reconstruction
+structural_int4_k8,8,BF16 top-8 + production dynamic INT4 b2048 residual,prior canonical reports; unchanged quantizer/reconstruction
+structural_vq64_int3_k8,8,"BF16 top-8 + 64-word vector INT3, contiguous pairing, p98/2048, opposite-seed codebook",prior canonical reports; unchanged quantizer/reconstruction
+direct_scalar_int4,0,production dynamic INT4 b2048 directly on M,prior canonical reports; unchanged quantizer/reconstruction
