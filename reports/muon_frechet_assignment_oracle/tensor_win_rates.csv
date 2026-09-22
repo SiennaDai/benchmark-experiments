@@ -1,0 +1,11 @@
+seed,method,n,frechet_metric_win_rate,actual_k5_cosine_win_rate,both_win_rate
+0,mix_025,150,0.04,0.02666666666666667,0.02
+0,mix_050,150,0.0,0.006666666666666667,0.0
+0,mix_075,150,0.0,0.0,0.0
+0,pair_local_frechet_hutchinson,150,0.0,0.0,0.0
+0,pair_local_skew_hutchinson,150,0.0,0.0,0.0
+1,mix_025,150,0.02,0.02,0.0
+1,mix_050,150,0.013333333333333334,0.0,0.0
+1,mix_075,150,0.013333333333333334,0.0,0.0
+1,pair_local_frechet_hutchinson,150,0.0,0.0,0.0
+1,pair_local_skew_hutchinson,150,0.0,0.0,0.0

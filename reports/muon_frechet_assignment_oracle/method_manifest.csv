@@ -1,0 +1,2 @@
+method,rank,codewords,bits_per_pair,bits_per_residual_value,block_size,scale,pairing,codebook
+MSE / local full Frechet / local skew / lambda mixes / global coordinate descent,8,64,6,3,2048,fixed p98,contiguous row-major,existing split-specific MSE codebook; frozen
