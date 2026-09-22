@@ -1,0 +1,5 @@
+method,description,rank,source
+direct_scalar_int4,production blockwise-dynamic INT4 b2048 Q(M),0,production_quantize(int4-dynamic-b2048)
+structural_scalar_int3_p98_k8,BF16 top-8 factors + p98 block scale + global Lloyd-Max 7-level scalar residual INT3,8,prior practical-scale canonical recipe
+structural_int4_k8,BF16 top-8 factors + production blockwise-dynamic INT4 b2048 residual,8,prior practical-scale canonical recipe
+structural_vq64_int3_k8,"BF16 top-8 factors + 64-word 2-D MSE VQ, p98/2048, held-out opposite-seed codebook",8,"prior robustness codebook seed 2026, held-out split"
