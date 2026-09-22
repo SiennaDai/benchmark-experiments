@@ -1,0 +1,2 @@
+aggregation_seconds=18.831
+primary_finite_sweep=completed in two checkpointed CPU runs; end-to-end wall time was not retained by the interrupted first run
