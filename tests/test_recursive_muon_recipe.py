@@ -6,6 +6,8 @@ import pytest
 
 from config.recipe import load_recipe
 from train_platform import learning_rate
+from benchmark_suite import load_suite
+from reporting import scientific_differences
 from scripts.check_recursive_gate import gate_snapshot
 from optim.muon_recursive import StructuralVQCodec, build_recursive_codecs
 from optim.state_simulation import persistence_metadata
@@ -36,6 +38,15 @@ def test_staged_recipes_keep_the_4096_scheduler_horizon():
     a = learning_rate(128, 4096, .001, 20, .1, "cosine")
     b = learning_rate(128, 4096, .001, 20, .1, "cosine")
     assert a == b
+
+
+def test_recursive_4096_suite_declares_the_two_structural_methods_and_gates():
+    suite = load_suite(ROOT / "benchmarks/recursive_muon_structural_4096_s0_v1.json")
+    configs = [load_recipe(run["recipe"]) for run in suite["runs"]]
+    assert [run["run_id"] for run in suite["runs"]] == [
+        "recursive_int4_4096_s0", "recursive_vq_int3_4096_s0"]
+    assert suite["trajectory"]["landmark_updates"] == [128, 512, 1024, 2048, 4096]
+    assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []
 
 
 def test_gate_report_requires_landmark_checkpoint_and_uses_event_values(tmp_path):

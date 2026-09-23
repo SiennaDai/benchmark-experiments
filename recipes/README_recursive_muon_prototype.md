@@ -3,6 +3,23 @@
 Do not rerun the completed FP32 Muon reference. Run only the two compressed
 trajectories, stopping explicitly at each gate:
 
+The paired protocol suite is declared in
+`benchmarks/recursive_muon_structural_4096_s0_v1.json`. Use the normal suite
+runner for the read-only preflight (it validates both recipes, their shared
+scientific fields, the mounted manifest, and the frozen VQ codebook):
+
+```bash
+python scripts/run_benchmark.py \
+  --suite benchmarks/recursive_muon_structural_4096_s0_v1.json \
+  --data-root /kaggle/working/benchmark-data \
+  --output-root /kaggle/working/runs \
+  --preflight-only
+```
+
+The suite runner is intentionally used only for preflight here: the formal
+training is staged and runs independently on GPU 0/GPU 1, so each gate must be
+resumed explicitly with `scripts/run_kaggle.sh`.
+
 ```bash
 # GPU 0: structural INT4
 CUDA_VISIBLE_DEVICES=0 python src/main.py --recipe recipes/recursive_muon_structural_int4_4096_s0.json \

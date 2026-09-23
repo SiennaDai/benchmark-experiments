@@ -1,0 +1,21 @@
+{
+  "name": "recursive_muon_structural_4096_s0_v1",
+  "runs": [
+    {"run_id": "recursive_int4_4096_s0", "recipe": "../recipes/recursive_muon_structural_int4_4096_s0.json"},
+    {"run_id": "recursive_vq_int3_4096_s0", "recipe": "../recipes/recursive_muon_structural_vq_int3_4096_s0.json"}
+  ],
+  "vary": [
+    "optimizer.recursive_representation",
+    "optimizer.recursive_codebook_path",
+    "optimizer.recursive_codebook_key"
+  ],
+  "trajectory": {
+    "group_by": ["experiment.seed"],
+    "treatment_field": "optimizer.recursive_representation",
+    "control_value": "int4",
+    "treatment_values": ["vq_int3"],
+    "landmark_updates": [128, 512, 1024, 2048, 4096]
+  },
+  "runtime": {"device": "cuda:0", "max_wall_seconds": 39600},
+  "report": {"output": "reports/recursive_muon_structural_4096_s0_v1"}
+}
