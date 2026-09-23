@@ -1,0 +1,8 @@
+{
+  "seed": 1,
+  "update": 4096,
+  "scalar_count": 10616832,
+  "base_vq_bits_per_value": 3.488594714506173,
+  "codebook_key": "s0_k8_w64_t8_v1200",
+  "interpretation": "E=M_ref-M_vq reference-aligned trajectory error; K5 is momentum-only nonlinear map; offline oracle, not online error feedback."
+}

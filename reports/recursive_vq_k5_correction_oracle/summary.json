@@ -1,0 +1,18 @@
+{
+  "status": "completed",
+  "seed": 1,
+  "update": 4096,
+  "methods": [
+    "raw_vq",
+    "structural_int4",
+    "frobenius",
+    "k5_aware"
+  ],
+  "budgets": [
+    0.0,
+    0.1,
+    0.25,
+    0.5,
+    1.0
+  ]
+}
