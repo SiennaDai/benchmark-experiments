@@ -84,15 +84,66 @@ def vq_stages(matrix: torch.Tensor, codec: StructuralVQCodec) -> dict[str, calla
 
 
 @torch.no_grad()
+def int4_stages(matrix: torch.Tensor, codec: StructuralINT4Codec) -> dict[str, callable]:
+    value = matrix.float()
+    holder: dict[str, torch.Tensor] = {}
+
+    def svd():
+        holder["u"], holder["s"], holder["vh"] = torch.linalg.svd(value, full_matrices=False)
+
+    def low_rank():
+        u, s, vh = holder["u"], holder["s"], holder["vh"]
+        k = min(codec.rank, int(s.numel()))
+        holder["residual"] = value - ((u[:, :k] * s[:k]) @ vh[:k] if k else torch.zeros_like(value))
+
+    def scales():
+        holder["scales"] = _block_stat_scales(holder["residual"].reshape(-1), codec.block_size)
+
+    def assignment():
+        flat = holder["residual"].reshape(-1)
+        scales = _repeat_block_scales(holder["scales"], flat.numel(), codec.block_size)
+        normalized = (flat / scales.clamp_min(torch.finfo(torch.float32).tiny)).reshape(-1, 1)
+        codebook = codec._map_on(value.device).reshape(-1, 1)
+        chunks = []
+        for start in range(0, flat.numel(), 65536):
+            chunks.append(torch.cdist(normalized[start:start + 65536], codebook).argmin(dim=1))
+        holder["codes"] = torch.cat(chunks)
+
+    def packing():
+        raw = holder["codes"].to(torch.int64)
+        packed = torch.empty(((raw.numel() + 1) // 2,), dtype=torch.uint8, device=value.device)
+        pairs = raw.numel() // 2
+        if pairs:
+            packed[:pairs] = (raw[0::2][:pairs] | (raw[1::2][:pairs] << 4)).to(torch.uint8)
+        if raw.numel() % 2:
+            packed[-1] = raw[-1].to(torch.uint8)
+        holder["packed"] = packed
+
+    def unpacking():
+        packed = holder["packed"].to(torch.int64)
+        count = holder["codes"].numel()
+        raw = torch.empty(count, dtype=torch.long, device=value.device)
+        pairs = count // 2
+        if pairs:
+            raw[0:2 * pairs:2] = packed[:pairs] & 15
+            raw[1:2 * pairs:2] = (packed[:pairs] >> 4) & 15
+        if count % 2:
+            raw[-1] = packed[-1] & 15
+        holder["unpacked"] = raw
+
+    return {"svd": svd, "low_rank": low_rank, "absmax": scales,
+            "assignment": assignment, "pack": packing, "unpack": unpacking}
+
+
+@torch.no_grad()
 def run_method(name: str, codec, shape: tuple[int, int], device: torch.device, repeats: int, seed: int):
     torch.manual_seed(seed)
     matrix = torch.randn(shape, device=device, dtype=torch.float32)
     row = {"method": name, "shape": list(shape), "device": str(device)}
     row["total_encode_ms"] = timed(lambda: codec.encode(matrix), device, repeats)
-    if name == "vq_int3":
-        stages = vq_stages(matrix, codec)
-        for key in ("svd", "low_rank", "p98", "assignment", "pack", "unpack"):
-            row[f"{key}_ms"] = timed(stages[key], device, repeats)
+    stages = vq_stages(matrix, codec) if name == "vq_int3" else int4_stages(matrix, codec)
+    for key in ("svd", "low_rank", "p98" if name == "vq_int3" else "absmax", "assignment", "pack", "unpack"):
+        row[f"{key}_ms"] = timed(stages[key], device, repeats)
     encoded = codec.encode(matrix)
     row["total_decode_ms"] = timed(lambda: codec.decode(encoded, device=device), device, repeats)
     return row
