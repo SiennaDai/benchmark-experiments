@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse, csv, json, math
 from pathlib import Path
+import sys
 import torch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.optim.muon_recursive import StructuralVQCodec, StructuralINT4Codec, StructuralVQState, StructuralINT4State
 from src.optim.muon_reference import zeropower_newton_schulz
 
