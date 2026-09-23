@@ -83,6 +83,8 @@ def main():
     mu = float(first_vq["metadata"]["muon_momentum"])
     for stem in common:
         fblob, vblob = _load(fp_files[stem]), _load(vq_files[stem]); fm = {x["name"]: x for x in fblob["tensors"]}; vm = {x["name"]: x for x in vblob["tensors"]}
+        if fblob["metadata"].get("update") != vblob["metadata"].get("update") or fblob["metadata"].get("processed_target_tokens") != vblob["metadata"].get("processed_target_tokens"):
+            raise RuntimeError(f"paired sampler/update alignment mismatch at {stem}")
         if set(fm) != set(vm): raise RuntimeError(f"tensor names differ at {stem}")
         local_rows = []
         for name in sorted(fm):
