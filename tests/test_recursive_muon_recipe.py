@@ -11,6 +11,7 @@ from reporting import scientific_differences
 from scripts.check_recursive_gate import gate_snapshot
 from optim.muon_recursive import StructuralVQCodec, build_recursive_codecs
 from optim.state_simulation import persistence_metadata
+from train_platform import parameter_groups
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,3 +100,18 @@ def test_recursive_state_summary_exposes_common_byte_contract():
     summary = optimizer.recursive_state_summary()
     assert summary["unique_storage_bytes"] == summary["logical_tensor_bytes"] == 0
     assert summary["persistent_bits"] == summary["codebook_bits"] == 0
+
+
+def test_recursive_muon_parameter_groups_activate_muon_dispatch():
+    class Tiny(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.transformer = torch.nn.Module()
+            self.transformer.h = torch.nn.ModuleList([torch.nn.Linear(4, 4, bias=False)])
+            self.other = torch.nn.Parameter(torch.zeros(4))
+
+    groups, records = parameter_groups(Tiny(), 0.1, "recursive_muon")
+    assert [group["optimizer_group"] for group in groups] == ["muon", "auxiliary_adamw"]
+    assert len(groups[0]["params"]) == 1
+    assert len(groups[1]["params"]) == 1
+    assert {row["group"] for row in records} == {"muon", "auxiliary_adamw"}

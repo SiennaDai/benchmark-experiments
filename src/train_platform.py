@@ -116,7 +116,12 @@ def parameter_groups(model, weight_decay: float, optimizer_name="reference_adamw
         else:
             (decay if use_decay else no_decay).append(p); group = "decay" if use_decay else "no_decay"
         records.append({"name": name, "group": group, "shape": list(p.shape), "numel": p.numel(), "dtype": str(p.dtype)})
-    if optimizer_name == "reference_muon":
+    # Both the historical FP32 reference and the recursive compressed
+    # prototype use the same Muon/auxiliary parameter partition.  The
+    # recursive optimizer dispatches on ``optimizer_group``; falling through
+    # to generic decay/no_decay groups would silently run every parameter
+    # through AdamW and bypass the codec entirely.
+    if optimizer_name in {"reference_muon", "recursive_muon"}:
         return [{"params": muon, "weight_decay": weight_decay, "optimizer_group": "muon"},
                 {"params": auxiliary, "weight_decay": weight_decay, "optimizer_group": "auxiliary_adamw"}], records
     return [{"params": decay, "weight_decay": weight_decay}, {"params": no_decay, "weight_decay": 0.0}], records

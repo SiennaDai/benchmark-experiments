@@ -265,6 +265,8 @@ class RecursiveMuon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self, closure=None):
         loss = closure() if closure is not None else None
+        if not any(group.get("optimizer_group") == "muon" for group in self.param_groups):
+            raise RuntimeError("recursive_muon requires an optimizer_group='muon' parameter group")
         for group in self.param_groups:
             is_muon = group.get("optimizer_group") == "muon"
             for p in group["params"]:
