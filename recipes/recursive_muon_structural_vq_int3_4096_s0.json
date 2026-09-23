@@ -1,0 +1,12 @@
+{
+  "experiment": {"name": "recursive_muon_structural_vq_int3_4096_s0", "protocol_id": "slimpajama-hash-split-v1", "seed": 0, "data_seed": 1337, "algorithm_seed": 2026},
+  "model": {"family": "llama", "n_layer": 6, "n_embd": 384, "n_head": 6, "ffn_dim": 1024, "multiple_of": 256, "vocab_size": 50304, "sequence_length": 256, "dropout": 0, "bias": false, "tie_embeddings": true, "init_std": 0.02, "rmsnorm_eps": 1e-5, "rope_theta": 10000},
+  "data": {"manifest": "data/slimpajama_4x/manifest.json", "train_split": "train", "validation_split": "validation", "allow_repeated_epochs": false},
+  "train": {"target_tokens": 33554432, "micro_batch_size": 4, "accumulation_steps": 8, "grad_clip_norm": 1.0},
+  "optimizer": {"name": "recursive_muon", "lr": 0.001, "betas": [0.9, 0.95], "eps": 1e-8, "weight_decay": 0.1, "fused": false, "foreach": false, "state_simulation": "none", "muon_momentum": 0.95, "muon_nesterov": true, "muon_ns_steps": 5, "muon_ns_coefficients": [3.4445, -4.775, 2.0315], "muon_eps": 1e-7, "recursive_rank": 8, "recursive_block_size": 2048, "recursive_factor_dtype": "bf16", "recursive_structure_mode": "exact_svd_oracle", "recursive_representation": "vq_int3", "recursive_codebook_path": "reports/muon_vector_int3_robustness/calibration_codebooks.pt", "recursive_codebook_key": "s1_k8_w64_t8_v1200"},
+  "schedule": {"name": "cosine", "warmup_updates": 20, "final_lr_ratio": 0.1, "total_updates": 4096},
+  "precision": {"compute": "fp32", "parameter_dtype": "fp32", "gradient_dtype": "fp32", "tf32": false, "attention_backend": "auto", "deterministic": true, "compile": false},
+  "eval": {"every_updates": 128, "max_target_tokens": 65536, "batch_size": 1, "compute": "fp32", "attention_backend": "math"},
+  "logging": {"every_updates": 1, "diagnostics": false, "wandb": false, "muon_update_fidelity": false, "muon_momentum_snapshot_updates": []},
+  "checkpoint": {"every_updates": 128, "save_initial": true, "save_final": true}
+}

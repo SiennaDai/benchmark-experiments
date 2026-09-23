@@ -8,7 +8,7 @@ from .muon_reference import ReferenceMuon
 BNB_DEFAULTS = {"amsgrad": False, "percentile_clipping": 100, "min_8bit_size": 4096, "block_wise": True, "is_paged": False}
 
 
-def make_optimizer(name, groups, cfg):
+def make_optimizer(name, groups, cfg, *, codecs=None):
     common = dict(lr=cfg["lr"], betas=tuple(cfg["betas"]), eps=cfg["eps"], weight_decay=cfg["weight_decay"])
     if name == "torch_adamw":
         return torch.optim.AdamW(groups, **common, fused=cfg["fused"], foreach=cfg["foreach"])
@@ -22,6 +22,15 @@ def make_optimizer(name, groups, cfg):
             muon_ns_steps=cfg.get("muon_ns_steps", 5), muon_ns_coefficients=cfg.get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315]), muon_eps=cfg.get("muon_eps", 1e-7),
             state_quantization_granularity=cfg.get("state_quantization_granularity", "per_state_tensor"),
             state_quantization_block_size=cfg.get("state_quantization_block_size", 2048))
+    if name == "recursive_muon":
+        if codecs is None:
+            raise ValueError("recursive_muon requires codecs")
+        from .muon_recursive import RecursiveMuon
+        return RecursiveMuon(groups, codecs, lr=cfg["lr"], betas=tuple(cfg["betas"]), eps=cfg["eps"],
+            weight_decay=cfg["weight_decay"], muon_momentum=cfg.get("muon_momentum", .95),
+            muon_nesterov=cfg.get("muon_nesterov", True), muon_ns_steps=cfg.get("muon_ns_steps", 5),
+            muon_ns_coefficients=cfg.get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315]),
+            muon_eps=cfg.get("muon_eps", 1e-7))
     if name in {"bnb_adamw32", "bnb_adamw8"}:
         if not torch.cuda.is_available():
             raise RuntimeError(f"{name} requires a supported CUDA device")

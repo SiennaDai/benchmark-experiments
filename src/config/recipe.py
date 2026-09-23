@@ -27,7 +27,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "state_quantization_granularity", "state_quantization_block_size"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -83,7 +83,7 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
     tokens_per_update = t["micro_batch_size"] * m["sequence_length"] * t["accumulation_steps"]
     if t["target_tokens"] % tokens_per_update:
         raise RecipeError(f"train.target_tokens must be divisible by {tokens_per_update}")
-    if o["name"] not in {"torch_adamw", "reference_adamw", "reference_muon", "bnb_adamw32", "bnb_adamw8"}:
+    if o["name"] not in {"torch_adamw", "reference_adamw", "reference_muon", "recursive_muon", "bnb_adamw32", "bnb_adamw8"}:
         raise RecipeError("unsupported optimizer.name")
     simulations = {"none", "bf16_roundtrip", "int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_linear_momentum", "int4_linear_momentum", "int8_dynamic_all_moments", "int8_dynamic_second_moment", "int4_dynamic_all_moments", "int4_dynamic_momentum"}
     if o["state_simulation"] not in simulations:
@@ -107,7 +107,7 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         raise RecipeError("dynamic state simulation requires blockwise granularity")
     if not isinstance(o["betas"], list) or len(o["betas"]) != 2:
         raise RecipeError("optimizer.betas must be a two-element array")
-    if o["name"] == "reference_muon":
+    if o["name"] in {"reference_muon", "recursive_muon"}:
         for key, default, typ in (("muon_momentum", .95, (int, float)), ("muon_nesterov", True, bool), ("muon_ns_steps", 5, int), ("muon_eps", 1e-7, (int, float))):
             value = o.get(key, default)
             _require_type(value, typ, f"optimizer.{key}")
@@ -116,6 +116,21 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         coefficients = o.get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315])
         if not isinstance(coefficients, list) or len(coefficients) != 3 or not all(isinstance(x, (int, float)) for x in coefficients):
             raise RecipeError("optimizer.muon_ns_coefficients must be a three-element numeric array")
+    if o["name"] == "recursive_muon":
+        if o.get("state_simulation", "none") != "none":
+            raise RecipeError("recursive_muon owns its compressed state; state_simulation must be none")
+        if o.get("recursive_rank", 8) <= 0:
+            raise RecipeError("optimizer.recursive_rank must be positive")
+        if o.get("recursive_block_size", 2048) <= 0:
+            raise RecipeError("optimizer.recursive_block_size must be positive")
+        if o.get("recursive_factor_dtype", "bf16") != "bf16":
+            raise RecipeError("recursive prototype currently requires BF16 structural factors")
+        if o.get("recursive_structure_mode", "exact_svd_oracle") not in {"exact_svd_oracle"}:
+            raise RecipeError("unsupported recursive_structure_mode")
+        if o.get("recursive_representation", "vq_int3") not in {"vq_int3", "int4"}:
+            raise RecipeError("unsupported recursive_representation")
+        if o.get("recursive_representation", "vq_int3") == "vq_int3" and (not isinstance(o.get("recursive_codebook_path"), str) or not isinstance(o.get("recursive_codebook_key"), str)):
+            raise RecipeError("recursive VQ requires recursive_codebook_path and recursive_codebook_key")
     if p["compute"] not in {"fp32", "bf16"} or p["parameter_dtype"] != "fp32" or p["gradient_dtype"] != "fp32":
         raise RecipeError("unsupported precision combination")
     if p["attention_backend"] not in {"math", "auto"} or e["attention_backend"] not in {"math", "auto"}:

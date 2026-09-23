@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/"src"))
 from config.recipe import load_recipe
 def main():
- p=argparse.ArgumentParser();p.add_argument("--recipe",required=True);p.add_argument("--dry-run",action="store_true");p.add_argument("--run-dir");p.add_argument("--resume");p.add_argument("--max-wall-seconds",type=float);p.add_argument("--data-root",type=Path,default=ROOT);p.add_argument("--to-device","--to_device",default="auto",dest="to_device");a=p.parse_args();cfg=load_recipe(a.recipe)
+ p=argparse.ArgumentParser();p.add_argument("--recipe",required=True);p.add_argument("--dry-run",action="store_true");p.add_argument("--run-dir");p.add_argument("--resume");p.add_argument("--max-wall-seconds",type=float);p.add_argument("--stop-at-update",type=int,default=None,help="stage gate; preserves the recipe scheduler horizon");p.add_argument("--data-root",type=Path,default=ROOT);p.add_argument("--to-device","--to_device",default="auto",dest="to_device");a=p.parse_args();cfg=load_recipe(a.recipe)
  data_root=a.data_root.expanduser().resolve();manifest=Path(cfg["data"]["manifest"]);manifest=manifest.expanduser().resolve() if manifest.is_absolute() else (data_root/manifest).resolve();cfg["data"]["manifest"]=str(manifest)
  import torch
  from data.frozen_tokens import load_manifest, validate_data_capacity
@@ -43,5 +43,5 @@ def main():
  else:
   resume=None;run_dir=Path(a.run_dir).resolve() if a.run_dir else ROOT/"runs"/(datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"-"+cfg["fingerprint"][:8]+"-"+uuid.uuid4().hex[:6])
   if run_dir.exists() and any(run_dir.iterdir()):p.error(f"new run directory is not empty: {run_dir}")
- summary=run(cfg,run_dir,resume,a.max_wall_seconds,a.to_device);return 0 if summary["status"] in {"completed","paused_budget","diverged_nonfinite"} else 1
+ summary=run(cfg,run_dir,resume,a.max_wall_seconds,a.to_device,stop_at_update=a.stop_at_update);return 0 if summary["status"] in {"completed","paused_budget","paused_staged","diverged_nonfinite"} else 1
 if __name__=="__main__":raise SystemExit(main())
