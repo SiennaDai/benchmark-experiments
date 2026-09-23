@@ -11,14 +11,50 @@ warm-start extractor is evaluated separately.
 from __future__ import annotations
 
 import math
+import copy
 from pathlib import Path
 from dataclasses import dataclass
 
 import torch
 
 from .muon_reference import zeropower_newton_schulz
-from .muon_vector_int3 import pair_values, unpair_values, vector_scales
 from .state_simulation import create_bitsandbytes_dynamic_map
+
+
+def _packed_device_key(device: torch.device) -> tuple[str, int | None]:
+    return device.type, device.index
+
+
+def _block_stat_scales(flat: torch.Tensor, block_size: int, *, percentile: float | None = None) -> torch.Tensor:
+    """Vectorized block statistics with one optional short tail block."""
+    if flat.ndim != 1 or block_size <= 0:
+        raise ValueError("flat input and positive block_size are required")
+    full = (flat.numel() // block_size) * block_size
+    pieces = []
+    if full:
+        blocks = flat[:full].reshape(-1, block_size)
+        abs_blocks = blocks.abs()
+        if percentile is None:
+            scales = abs_blocks.amax(dim=1)
+        else:
+            scales = torch.quantile(abs_blocks, percentile, dim=1)
+        nonzero = abs_blocks.amax(dim=1) != 0
+        scales = torch.where(nonzero, scales.clamp_min(torch.finfo(torch.float32).tiny), torch.zeros_like(scales))
+        pieces.append(scales)
+    if full != flat.numel():
+        tail = flat[full:]
+        abs_tail = tail.abs()
+        scale = abs_tail.amax() if percentile is None else torch.quantile(abs_tail, percentile)
+        scale = torch.where(abs_tail.amax() != 0, scale.clamp_min(torch.finfo(torch.float32).tiny), torch.zeros_like(scale))
+        pieces.append(scale.reshape(1))
+    return torch.cat(pieces) if pieces else flat.new_empty((0,))
+
+
+def _repeat_block_scales(scales: torch.Tensor, count: int, block_size: int) -> torch.Tensor:
+    """Expand one scalar scale per block to one scalar per value."""
+    if count == 0:
+        return scales.new_empty((0,))
+    return torch.repeat_interleave(scales, block_size)[:count]
 
 
 def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) -> torch.Tensor:
@@ -39,16 +75,28 @@ def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) 
         raise ValueError("count does not match indices")
     if n == 0:
         return torch.empty((0,), dtype=torch.uint8, device=values.device)
-    bit = torch.arange(n, device=values.device, dtype=torch.long) * bits
-    byte = bit // 8
-    shift = bit % 8
-    out = torch.zeros((math.ceil(n * bits / 8),), dtype=torch.int64, device=values.device)
-    out.scatter_add_(0, byte, (values << shift) & 0xFF)
-    crossing = shift + bits > 8
-    if bool(crossing.any()):
-        out.scatter_add_(0, byte[crossing] + 1,
-                         values[crossing] >> (8 - shift[crossing]))
-    return out.to(torch.uint8)
+    # Four 6-bit indices occupy exactly three bytes.  This is the same
+    # least-significant-bit-first layout used by the legacy scalar loop, but
+    # uses tensor slices instead of one Python operation per index.
+    groups = n // 4
+    out = torch.empty((math.ceil(n * bits / 8),), dtype=torch.uint8, device=values.device)
+    if groups:
+        v = values[:groups * 4].reshape(groups, 4)
+        out[:groups * 3].reshape(groups, 3).copy_(torch.stack((
+            v[:, 0] | ((v[:, 1] & 0x03) << 6),
+            (v[:, 1] >> 2) | ((v[:, 2] & 0x0F) << 4),
+            (v[:, 2] >> 4) | (v[:, 3] << 2),
+        ), dim=1).to(torch.uint8))
+    tail = n - groups * 4
+    if tail:
+        v = values[groups * 4:]
+        base = groups * 3
+        out[base] = (v[0] | ((v[1] & 0x03) << 6) if tail >= 2 else v[0]).to(torch.uint8)
+        if tail >= 2:
+            out[base + 1] = ((v[1] >> 2) | ((v[2] & 0x0F) << 4) if tail >= 3 else (v[1] >> 2)).to(torch.uint8)
+        if tail >= 3:
+            out[base + 2] = (v[2] >> 4).to(torch.uint8)
+    return out
 
 
 def unpack_indices(packed: torch.Tensor, count: int, bits: int = 6) -> torch.Tensor:
@@ -60,15 +108,24 @@ def unpack_indices(packed: torch.Tensor, count: int, bits: int = 6) -> torch.Ten
         raise ValueError("packed byte count does not match index count")
     if count == 0:
         return torch.empty((0,), dtype=torch.long, device=raw.device)
-    bit = torch.arange(count, device=raw.device, dtype=torch.long) * bits
-    byte = bit // 8
-    shift = bit % 8
-    out = raw[byte] >> shift
-    crossing = shift + bits > 8
-    if bool(crossing.any()):
-        out = out.clone()
-        out[crossing] |= raw[byte[crossing] + 1] << (8 - shift[crossing])
-    return out & ((1 << bits) - 1)
+    groups = count // 4
+    out = torch.empty((count,), dtype=torch.long, device=raw.device)
+    if groups:
+        b = raw[:groups * 3].reshape(groups, 3)
+        v = out[:groups * 4].reshape(groups, 4)
+        v[:, 0] = b[:, 0] & 0x3F
+        v[:, 1] = (b[:, 0] >> 6) | ((b[:, 1] & 0x0F) << 2)
+        v[:, 2] = (b[:, 1] >> 4) | ((b[:, 2] & 0x03) << 4)
+        v[:, 3] = (b[:, 2] >> 2) & 0x3F
+    tail = count - groups * 4
+    if tail:
+        base_b = groups * 3; base_v = groups * 4
+        out[base_v] = raw[base_b] & 0x3F
+        if tail >= 2:
+            out[base_v + 1] = (raw[base_b] >> 6) | ((raw[base_b + 1] & 0x0F) << 2)
+        if tail >= 3:
+            out[base_v + 2] = (raw[base_b + 1] >> 4) | ((raw[base_b + 2] & 0x03) << 4)
+    return out
 
 
 @dataclass
@@ -87,6 +144,11 @@ class StructuralVQState:
     pair_count: int
     shape: tuple[int, int]
     codebook_key: str
+
+    def to(self, device: torch.device) -> "StructuralVQState":
+        return StructuralVQState(self.u.to(device), self.singular_values.to(device), self.vh.to(device),
+                                 self.scales.to(device), self.indices.to(device), self.pair_count,
+                                 self.shape, self.codebook_key)
 
     def state_dict(self) -> dict:
         return {
@@ -119,6 +181,13 @@ class StructuralVQCodec:
         self.rank = int(rank)
         self.block_size = int(block_size)
         self.codebook_key = str(codebook_key)
+        self._codebook_cache: dict[tuple[str, int | None], torch.Tensor] = {}
+
+    def _codebook_on(self, device: torch.device) -> torch.Tensor:
+        key = _packed_device_key(device)
+        if key not in self._codebook_cache:
+            self._codebook_cache[key] = self.codebook.to(device=device)
+        return self._codebook_cache[key]
 
     @torch.no_grad()
     def encode(self, momentum: torch.Tensor) -> StructuralVQState:
@@ -134,44 +203,43 @@ class StructuralVQCodec:
         uk, sk, vhk = u[:, :k], s[:k], vh[:k]
         low = (uk * sk) @ vhk if k else torch.zeros_like(value)
         residual = value - low
-        pairs, singles, pair_index, single_index = pair_values(residual, "contiguous")
-        if singles.numel():
-            raise ValueError("recursive matrices must contain an even number of values")
-        scales = vector_scales(pairs, "p98", block_size=self.block_size)
+        if residual.numel() % 2:
+            raise ValueError("recursive contiguous VQ requires even-sized matrices")
+        # All current formal Muon matrices are even-sized.  Avoid the generic
+        # offline pairing helper here: it builds Python lists/sets over every
+        # scalar and is not part of the recursive representation semantics.
+        pairs = residual.reshape(-1, 2)
+        scales = _block_stat_scales(residual.reshape(-1), self.block_size, percentile=.98)
+        pair_scales = _repeat_block_scales(scales, pairs.shape[0], self.block_size // 2)
+        safe_scales = pair_scales.clamp_min(torch.finfo(torch.float32).tiny)
+        normalized = (pairs / safe_scales[:, None]).clamp(-1, 1)
+        codebook = self._codebook_on(value.device)
         indices = torch.empty((pairs.shape[0],), dtype=torch.long, device=value.device)
-        nvec = self.block_size // 2
-        codebook = self.codebook.to(device=value.device)
-        for start in range(0, pairs.shape[0], nvec):
-            end = min(start + nvec, pairs.shape[0])
-            alpha = scales[start // nvec]
-            if alpha.item() == 0:
-                indices[start:end] = 0
-            else:
-                normalized = (pairs[start:end] / alpha).clamp(-1, 1)
-                indices[start:end] = torch.cdist(normalized, codebook).argmin(dim=1)
-        return StructuralVQState(uk.to(torch.bfloat16).cpu(), sk.to(torch.bfloat16).cpu(),
-                                 vhk.to(torch.bfloat16).cpu(), scales.float().cpu(),
-                                 pack_indices(indices, 6).cpu(), int(indices.numel()),
+        # A small number of large chunks bounds temporary memory without
+        # reintroducing a block-sized Python loop or GPU synchronization.
+        for start in range(0, pairs.shape[0], 65536):
+            end = min(start + 65536, pairs.shape[0])
+            indices[start:end] = torch.cdist(normalized[start:end], codebook).argmin(dim=1)
+        indices = torch.where(pair_scales > 0, indices, torch.zeros_like(indices))
+        return StructuralVQState(uk.to(torch.bfloat16), sk.to(torch.bfloat16),
+                                 vhk.to(torch.bfloat16), scales.float(),
+                                 pack_indices(indices, 6), int(indices.numel()),
                                  tuple(value.shape), self.codebook_key)
 
     @torch.no_grad()
     def decode(self, state: StructuralVQState, *, device=None) -> torch.Tensor:
         device = device or torch.device("cpu")
+        if state.u.device != device:
+            state = state.to(device)
         u = state.u.to(device=device, dtype=torch.float32)
         s = state.singular_values.to(device=device, dtype=torch.float32)
         vh = state.vh.to(device=device, dtype=torch.float32)
         low = (u * s) @ vh if s.numel() else torch.zeros(state.shape, device=device)
-        indices = unpack_indices(state.indices.to(device=device), state.pair_count)
+        indices = unpack_indices(state.indices, state.pair_count)
         scales = state.scales.to(device=device, dtype=torch.float32)
-        pairs = torch.empty((state.pair_count, 2), device=device)
-        nvec = self.block_size // 2
-        for start in range(0, state.pair_count, nvec):
-            end = min(start + nvec, state.pair_count)
-            alpha = scales[start // nvec]
-            pairs[start:end] = 0 if alpha.item() == 0 else self.codebook.to(device)[indices[start:end]] * alpha
-        singles = torch.empty((0,), device=device)
-        pi, si = pair_values(torch.zeros(state.shape), "contiguous")[2:]
-        return low + unpair_values(pairs, singles, state.shape, pi.to(device), si.to(device))
+        pair_scales = _repeat_block_scales(scales, state.pair_count, self.block_size // 2)
+        pairs = self._codebook_on(device)[indices] * pair_scales[:, None]
+        return low + pairs.reshape(state.shape)
 
     def storage_bits(self, state: StructuralVQState) -> int:
         """Exact serialized payload bits, excluding Python/container overhead."""
@@ -190,6 +258,10 @@ class StructuralINT4State:
     count: int
     shape: tuple[int, int]
 
+    def to(self, device: torch.device) -> "StructuralINT4State":
+        return StructuralINT4State(self.u.to(device), self.singular_values.to(device), self.vh.to(device),
+                                   self.scales.to(device), self.codes.to(device), self.count, self.shape)
+
 
 class StructuralINT4Codec:
     """Packed structural INT4 residual codec using the production dynamic map."""
@@ -197,6 +269,13 @@ class StructuralINT4Codec:
     def __init__(self, *, rank: int = 8, block_size: int = 2048):
         self.rank, self.block_size = int(rank), int(block_size)
         self.map = create_bitsandbytes_dynamic_map(signed=True, max_exponent_bits=3, total_bits=4)
+        self._map_cache: dict[tuple[str, int | None], torch.Tensor] = {}
+
+    def _map_on(self, device: torch.device) -> torch.Tensor:
+        key = _packed_device_key(device)
+        if key not in self._map_cache:
+            self._map_cache[key] = self.map.to(device=device)
+        return self._map_cache[key]
 
     @torch.no_grad()
     def encode(self, momentum: torch.Tensor) -> StructuralINT4State:
@@ -208,30 +287,45 @@ class StructuralINT4Codec:
         u, s, vh = torch.linalg.svd(value, full_matrices=False)
         k = min(self.rank, int(s.numel())); uk, sk, vhk = u[:, :k], s[:k], vh[:k]
         low = (uk * sk) @ vhk if k else torch.zeros_like(value)
-        flat = (value - low).reshape(-1); scales = []; codes = torch.empty_like(flat, dtype=torch.long)
-        codebook = self.map.to(device=value.device)
-        for start in range(0, flat.numel(), self.block_size):
-            end = min(start + self.block_size, flat.numel()); block = flat[start:end]
-            alpha = block.abs().amax(); scales.append(alpha)
-            if alpha.item() == 0: codes[start:end] = 0
-            else:
-                codes[start:end] = torch.cdist((block / alpha).reshape(-1, 1), codebook.reshape(-1, 1)).argmin(1)
-        raw = codes.to(torch.int64); packed = torch.zeros((math.ceil(raw.numel() / 2),), dtype=torch.uint8)
-        packed[:raw.numel() // 2] = (raw[0::2][:packed.numel()] | (raw[1::2][:packed.numel()] << 4)).to(torch.uint8)
-        if raw.numel() % 2: packed[-1] = raw[-1].to(torch.uint8)
-        return StructuralINT4State(uk.to(torch.bfloat16).cpu(), sk.to(torch.bfloat16).cpu(),
-                                   vhk.to(torch.bfloat16).cpu(), torch.stack(scales).float().cpu(),
-                                   packed.cpu(), int(raw.numel()), tuple(value.shape))
+        flat = (value - low).reshape(-1)
+        scales = _block_stat_scales(flat, self.block_size)
+        value_scales = _repeat_block_scales(scales, flat.numel(), self.block_size)
+        safe_scales = value_scales.clamp_min(torch.finfo(torch.float32).tiny)
+        normalized = (flat / safe_scales).reshape(-1, 1)
+        codebook = self._map_on(value.device).reshape(-1, 1)
+        codes = torch.empty_like(flat, dtype=torch.long)
+        for start in range(0, flat.numel(), 65536):
+            end = min(start + 65536, flat.numel())
+            codes[start:end] = torch.cdist(normalized[start:end], codebook).argmin(dim=1)
+        codes = torch.where(value_scales > 0, codes, torch.zeros_like(codes))
+        raw = codes.to(torch.int64)
+        packed = torch.empty((math.ceil(raw.numel() / 2),), dtype=torch.uint8, device=value.device)
+        even = raw[0::2]; odd = raw[1::2]
+        pairs = raw.numel() // 2
+        if pairs:
+            packed[:pairs] = (even[:pairs] | (odd[:pairs] << 4)).to(torch.uint8)
+        if raw.numel() % 2:
+            packed[-1] = raw[-1].to(torch.uint8)
+        return StructuralINT4State(uk.to(torch.bfloat16), sk.to(torch.bfloat16),
+                                   vhk.to(torch.bfloat16), scales.float(),
+                                   packed, int(raw.numel()), tuple(value.shape))
 
     @torch.no_grad()
     def decode(self, state: StructuralINT4State, *, device=None) -> torch.Tensor:
-        device = device or torch.device("cpu"); u = state.u.to(device, torch.float32); s = state.singular_values.to(device, torch.float32); vh = state.vh.to(device, torch.float32)
+        device = device or torch.device("cpu")
+        if state.u.device != device:
+            state = state.to(device)
+        u = state.u.to(device, torch.float32); s = state.singular_values.to(device, torch.float32); vh = state.vh.to(device, torch.float32)
         low = (u * s) @ vh if s.numel() else torch.zeros(state.shape, device=device)
         packed = state.codes.to(device=device, dtype=torch.int64); raw = torch.empty(state.count, dtype=torch.long, device=device)
-        raw[0::2] = packed[: (state.count + 1)//2] & 15; raw[1::2] = (packed[: state.count//2] >> 4) & 15
-        flat = torch.empty(state.count, device=device); cmap = self.map.to(device)
-        for start in range(0, state.count, self.block_size):
-            end = min(start + self.block_size, state.count); flat[start:end] = cmap[raw[start:end]] * state.scales[start // self.block_size].to(device)
+        pairs = state.count // 2
+        if pairs:
+            raw[0:2 * pairs:2] = packed[:pairs] & 15
+            raw[1:2 * pairs:2] = (packed[:pairs] >> 4) & 15
+        if state.count % 2:
+            raw[-1] = packed[-1] & 15
+        value_scales = _repeat_block_scales(state.scales.to(device=device, dtype=torch.float32), state.count, self.block_size)
+        flat = self._map_on(device)[raw] * value_scales
         return low + flat.reshape(state.shape)
 
     def storage_bits(self, state: StructuralINT4State) -> int:
@@ -281,6 +375,55 @@ class RecursiveMuon(torch.optim.Optimizer):
                         muon_ns_steps=muon_ns_steps, muon_ns_coefficients=tuple(muon_ns_coefficients),
                         muon_eps=muon_eps)
         super().__init__(params, defaults)
+
+    @staticmethod
+    def _serialize_encoded(value):
+        if isinstance(value, StructuralVQState):
+            return {"_recursive_state_type": "vq", **value.state_dict()}
+        if isinstance(value, StructuralINT4State):
+            return {"_recursive_state_type": "int4", "u": value.u.cpu(),
+                    "singular_values": value.singular_values.cpu(), "vh": value.vh.cpu(),
+                    "scales": value.scales.cpu(), "codes": value.codes.cpu(),
+                    "count": value.count, "shape": tuple(value.shape)}
+        return value.detach().cpu() if torch.is_tensor(value) else copy.deepcopy(value)
+
+    @staticmethod
+    def _deserialize_encoded(value):
+        if not isinstance(value, dict):
+            return value
+        kind = value.get("_recursive_state_type")
+        if kind == "vq":
+            payload = {key: item for key, item in value.items() if key != "_recursive_state_type"}
+            return StructuralVQState.from_state_dict(payload)
+        if kind == "int4":
+            return StructuralINT4State(value["u"], value["singular_values"], value["vh"],
+                                       value["scales"], value["codes"], int(value["count"]),
+                                       tuple(value["shape"]))
+        return value
+
+    def state_dict(self):
+        """Serialize compressed state on CPU without changing live residency."""
+        source = super().state_dict()
+        result = {"state": {}, "param_groups": copy.deepcopy(source["param_groups"])}
+        for parameter_id, state in source["state"].items():
+            result["state"][parameter_id] = {
+                key: self._serialize_encoded(value) for key, value in state.items()
+            }
+        return result
+
+    def load_state_dict(self, state_dict):
+        incoming = {"state": {}, "param_groups": copy.deepcopy(state_dict["param_groups"])}
+        for parameter_id, state in state_dict["state"].items():
+            incoming["state"][parameter_id] = {
+                key: self._deserialize_encoded(value) for key, value in state.items()
+            }
+        super().load_state_dict(incoming)
+        # Checkpoint values are CPU-portable; resume puts only compressed state
+        # back on the active parameter device.  No FP32 momentum is created.
+        for parameter, state in self.state.items():
+            encoded = state.get("compressed_momentum")
+            if isinstance(encoded, (StructuralVQState, StructuralINT4State)):
+                state["compressed_momentum"] = encoded.to(parameter.device)
 
     @torch.no_grad()
     def step(self, closure=None):
