@@ -1,0 +1,35 @@
+{
+  "fp32_run": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/light/recursive-muon-mechanism-runs/mechanism_fp32_muon_4096_s1",
+  "vq_run": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/light/recursive-muon-mechanism-runs/mechanism_recursive_vq_int3_4096_s1",
+  "fp32_source_commit": "81ed8bbae95b0aea286bae081b901a257d83e8ce",
+  "vq_source_commit": "81ed8bbae95b0aea286bae081b901a257d83e8ce",
+  "common_snapshots": [
+    "update_000001",
+    "update_000008",
+    "update_000032",
+    "update_000128",
+    "update_000512"
+  ],
+  "resolved_fp32_snapshots": {
+    "update_000001": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/fp32_update_000001.pt",
+    "update_000008": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/fp32_update_000008.pt",
+    "update_000032": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/fp32_update_000032.pt",
+    "update_000128": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/fp32_update_000128.pt",
+    "update_000512": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/fp32_update_000512.pt"
+  },
+  "resolved_vq_snapshots": {
+    "update_000001": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/vq_int3_update_000001.pt",
+    "update_000008": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/vq_int3_update_000008.pt",
+    "update_000032": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/vq_int3_update_000032.pt",
+    "update_000128": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/vq_int3_update_000128.pt",
+    "update_000512": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_mechanism_s1_512/raw_download/vq_int3_update_000512.pt"
+  },
+  "mismatches": [],
+  "protocol_integrity": {
+    "mismatches": [],
+    "paired_train_events": 512,
+    "train_positions_lr_tokens_match": true,
+    "batch_ids_or_hashes_saved": false,
+    "batch_alignment_evidence": "matching deterministic protocol, update/token positions, tokens per update, and learning rates; raw batch IDs/hashes are not present"
+  }
+}

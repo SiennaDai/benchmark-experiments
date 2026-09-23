@@ -1,8 +1,10 @@
 import sys
 import subprocess
 import json
+import csv
 from pathlib import Path
 
+import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -10,14 +12,17 @@ from config.recipe import load_recipe  # noqa: E402
 from optim.muon_mechanism import MuonMechanismObserver  # noqa: E402
 from optim.muon_reference import ReferenceMuon  # noqa: E402
 from optim.muon_recursive import RecursiveMuon, StructuralVQCodec  # noqa: E402
-from scripts.analyze_recursive_muon_mechanism import validate_pair_metadata  # noqa: E402
+from scripts.analyze_recursive_muon_mechanism import (  # noqa: E402
+    _direction_from_previous, _k5, _pooled_pairs, validate_pair_metadata,
+)
 
 
 def _metadata():
     return {"seed": 1, "data_seed": 1337, "algorithm_seed": 2026,
             "recipe_fingerprint": "x", "data_fingerprint": "y", "schedule_total_updates": 4096,
+            "protocol_id": "test-protocol", "tokens_per_update": 8192, "sequence_length": 256,
             "muon_momentum": .95, "muon_ns_steps": 5,
-            "muon_ns_coefficients": [3.4445, -4.775, 2.0315], "muon_eps": 1e-7}
+            "muon_nesterov": True, "muon_ns_coefficients": [3.4445, -4.775, 2.0315], "muon_eps": 1e-7}
 
 
 def test_mechanism_observer_writes_exact_fp32_raw_fixture(tmp_path):
@@ -81,21 +86,101 @@ def test_pair_metadata_validation_detects_mismatch():
     assert not validate_pair_metadata(a, dict(a))
 
 
-def test_tiny_paired_analysis_fixture(tmp_path):
+def test_nesterov_direction_uses_previous_state_not_current_candidate():
+    mu = .95
+    previous = torch.tensor([[2.0, -1.0]])
+    gradient = torch.tensor([[.5, 3.0]])
+    candidate = mu * previous + gradient
+    exact = _direction_from_previous(previous, gradient, mu)
+    expected = gradient + mu * candidate
+    assert torch.allclose(exact, expected, atol=1e-6, rtol=0)
+    # Passing the already gradient-containing candidate as if it were M_(t-1)
+    # would add the current gradient a second time and must be observably wrong.
+    wrong = _direction_from_previous(candidate, gradient, mu)
+    assert not torch.allclose(wrong, expected, atol=1e-4, rtol=0)
+
+
+def test_counterfactual_metrics_pool_by_global_norms_not_mean_cosine():
+    # Tensor 1 is tiny and orthogonal; tensor 2 dominates the global metric.
+    tiny = (torch.tensor([1.0, 0.0]), torch.tensor([0.0, 1.0]))
+    large = (torch.tensor([100.0, 0.0]), torch.tensor([100.0, .1]))
+    pooled = _pooled_pairs([tiny, large])
+    concatenated = _pooled_pairs([(torch.cat((tiny[0], large[0])),
+                                   torch.cat((tiny[1], large[1])))])
+    arithmetic_cosine = sum(float(torch.nn.functional.cosine_similarity(a, b, dim=0))
+                            for a, b in (tiny, large)) / 2
+    assert pooled["cosine"] == pytest.approx(concatenated["cosine"], abs=1e-9)
+    assert pooled["relative_l2"] == pytest.approx(concatenated["relative_l2"], abs=1e-9)
+    assert arithmetic_cosine < .51
+
+
+def test_corrected_paired_analysis_rebuilds_all_directions_from_previous_states(tmp_path):
     fp = tmp_path / "fp"; vq = tmp_path / "vq"
     (fp / "mechanism").mkdir(parents=True); (vq / "mechanism").mkdir(parents=True)
-    meta = _metadata() | {"update": 1, "processed_target_tokens": 8192,
-                          "optimizer_name": "reference_muon", "tensor_count": 1}
-    vmeta = dict(meta, optimizer_name="recursive_muon")
-    g = torch.randn(4, 4); m = torch.randn(4, 4); cand = .95*m + g; persisted = cand + .01
-    item_fp = {"name": "transformer.h.0.test.weight", "shape": [4, 4], "gradient": g,
-               "momentum_prev_decoded": m, "momentum_prev_candidate": m,
-               "momentum_candidate": cand, "momentum_persisted_decoded": cand}
-    item_vq = {**item_fp, "gradient": g + .01, "momentum_candidate": cand + .02,
-               "momentum_persisted_decoded": persisted}
-    for d, payload in ((fp, {"format": "recursive_muon_mechanism_snapshot", "version": 1, "metadata": meta, "tensors": [item_fp]}),
-                       (vq, {"format": "recursive_muon_mechanism_snapshot", "version": 1, "metadata": vmeta, "tensors": [item_vq]})):
-        torch.save(payload, d / "mechanism/update_000001.pt"); (d / "metrics.jsonl").write_text("")
-    out = tmp_path / "report"
-    subprocess.run([sys.executable, "scripts/analyze_recursive_muon_mechanism.py", "--fp32-run", str(fp), "--vq-run", str(vq), "--out", str(out)], check=True)
-    assert (out / "landmark_metrics.csv").exists()
+    mu = .95
+    snapshots = {}
+    for run, optimizer_name, is_vq in ((fp, "reference_muon", False), (vq, "recursive_muon", True)):
+        for update in (1, 8, 32, 128, 512):
+            meta = _metadata() | {"update": update, "processed_target_tokens": update * 8192,
+                                  "optimizer_name": optimizer_name, "tensor_count": 1}
+            if update == 1:
+                prev = torch.zeros(2, 2); prev_candidate = torch.zeros(2, 2)
+            else:
+                prev = torch.full((2, 2), .1 if not is_vq else .14)
+                prev_candidate = prev + (.01 if is_vq else 0.0)
+            grad = torch.tensor([[.2, .1], [-.3, .4]]) + (torch.tensor([[.05, -.25], [.1, -.05]]) if is_vq else 0)
+            candidate = mu * prev + grad
+            persisted = candidate + (torch.tensor([[.005, -.003], [.002, .004]]) if is_vq else 0)
+            item = {"name": "transformer.h.0.test.weight", "shape": [2, 2],
+                    "gradient": grad, "momentum_prev_decoded": prev,
+                    "momentum_prev_candidate": prev_candidate, "momentum_candidate": candidate,
+                    "momentum_persisted_decoded": persisted}
+            snapshots[(update, is_vq)] = item
+            torch.save({"format": "recursive_muon_mechanism_snapshot", "version": 1,
+                        "metadata": meta, "tensors": [item]},
+                       run / "mechanism" / f"update_{update:06d}.pt")
+        summary = {"seed": 1, "data_seed": 1337, "algorithm_seed": 2026,
+                   "protocol_id": "test-protocol", "data_fingerprint": "y",
+                       "schedule_total_updates": 4096, "target_tokens": 4096 * 8192,
+                       "total_updates": 4096, "compute_precision": "fp32",
+                       "sequence_length": 256, "completed_updates": 512,
+                       "optimizer_name": optimizer_name, "status": "paused_staged", "git_commit": "test"}
+        (run / "summary.json").write_text(json.dumps(summary))
+        events = [{"event_type": "train", "completed_updates": i,
+                   "processed_target_tokens": i * 8192, "tokens_this_update": 8192,
+                   "lr": .001} for i in range(1, 513)]
+        (run / "metrics.jsonl").write_text("\n".join(json.dumps(x) for x in events))
+    out = tmp_path / "corrected_report"
+    subprocess.run([sys.executable, "scripts/analyze_recursive_muon_mechanism.py",
+                    "--fp32-run", str(fp), "--vq-run", str(vq), "--out", str(out)], check=True)
+    with (out / "landmark_metrics.csv").open() as f:
+        pooled_by_update = {int(x["update"]): x for x in csv.DictReader(f)}
+    pooled = pooled_by_update[8]
+    item_fp, item_vq = snapshots[(8, False)], snapshots[(8, True)]
+    g_ref, g_vq = item_fp["gradient"], item_vq["gradient"]
+    prev_ref, prev_vq = item_fp["momentum_prev_decoded"], item_vq["momentum_prev_decoded"]
+    prev_unquant_vq = item_vq["momentum_prev_candidate"]
+    d_ref = _direction_from_previous(prev_ref, g_ref, mu)
+    d_vq = _direction_from_previous(prev_vq, g_vq, mu)
+    d_state = _direction_from_previous(prev_vq, g_ref, mu)
+    d_gradient = _direction_from_previous(prev_ref, g_vq, mu)
+    d_local = _direction_from_previous(prev_unquant_vq, g_vq, mu)
+    assert torch.allclose(d_local - d_vq, mu**2 * (prev_unquant_vq - prev_vq), atol=1e-7, rtol=0)
+    map_meta = _metadata()
+    o_ref = _k5(d_ref, map_meta); o_vq = _k5(d_vq, map_meta)
+    o_state = _k5(d_state, map_meta); o_gradient = _k5(d_gradient, map_meta); o_local = _k5(d_local, map_meta)
+    assert float(pooled["nesterov_direction_cosine"]) == pytest.approx(
+        _pooled_pairs([(d_ref, d_vq)])["cosine"], abs=1e-7)
+    assert float(pooled["k5_update_cosine"]) == pytest.approx(
+        _pooled_pairs([(o_ref, o_vq)])["cosine"], abs=1e-7)
+    assert float(pooled["state_only_k5_cosine"]) == pytest.approx(
+        _pooled_pairs([(o_ref, o_state)])["cosine"], abs=1e-7)
+    assert float(pooled["gradient_only_k5_cosine"]) == pytest.approx(
+        _pooled_pairs([(o_ref, o_gradient)])["cosine"], abs=1e-7)
+    assert float(pooled["local_k5_cosine"]) == pytest.approx(
+        _pooled_pairs([(o_vq, o_local)])["cosine"], abs=1e-7)
+    assert "global tensor-norm pooling" in (out / "summary.json").read_text()
+    assert (out / "comparison.md").exists()
+    update1 = pooled_by_update[1]
+    assert float(update1["local_k5_cosine"]) == pytest.approx(1.0, abs=1e-7)
+    assert float(update1["local_k5_relative_l2"]) == pytest.approx(0.0, abs=1e-7)

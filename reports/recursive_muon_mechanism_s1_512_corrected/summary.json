@@ -1,0 +1,41 @@
+{
+  "status": "completed",
+  "updates": [
+    1,
+    8,
+    32,
+    128,
+    512
+  ],
+  "paired_snapshots": 5,
+  "fp32_run": "artifacts/recursive_muon_mechanism_s1_512/light/recursive-muon-mechanism-runs/mechanism_fp32_muon_4096_s1",
+  "vq_run": "artifacts/recursive_muon_mechanism_s1_512/light/recursive-muon-mechanism-runs/mechanism_recursive_vq_int3_4096_s1",
+  "validation_nll_fp32": {
+    "0": 10.86390045285225,
+    "128": 6.362571250647306,
+    "256": 5.832528513856232,
+    "384": 5.6789092971012,
+    "512": 5.55546904169023
+  },
+  "validation_nll_vq": {
+    "0": 10.86390045285225,
+    "128": 6.397437922656536,
+    "256": 5.846569838933647,
+    "384": 5.703422016464174,
+    "512": 5.582526474259794
+  },
+  "protocol_integrity": {
+    "mismatches": [],
+    "paired_train_events": 512,
+    "train_positions_lr_tokens_match": true,
+    "batch_ids_or_hashes_saved": false,
+    "batch_alignment_evidence": "matching deterministic protocol, update/token positions, tokens per update, and learning rates; raw batch IDs/hashes are not present"
+  },
+  "counterfactuals": {
+    "state_only": "FP32 current gradient with VQ previous decoded/persistent momentum",
+    "gradient_only": "VQ current gradient with FP32 previous decoded momentum",
+    "local_previous_persistence": "VQ current gradient with previous unquantized VQ candidate instead of previous decoded persisted momentum",
+    "update_1": "all entering momentum states are zero; local persistence counterfactual equals actual VQ direction"
+  },
+  "aggregation": "global tensor-norm pooling via summed dot products and squared norms"
+}
