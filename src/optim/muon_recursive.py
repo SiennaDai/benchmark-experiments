@@ -22,42 +22,53 @@ from .state_simulation import create_bitsandbytes_dynamic_map
 
 
 def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) -> torch.Tensor:
-    """Pack fixed-width unsigned indices into bytes, least-significant-bit first."""
+    """Pack fixed-width unsigned indices into bytes, least-significant-bit first.
+
+    The operation is vectorized and stays on the input device.  This matters
+    for recursive CUDA runs: the packed state is copied to CPU only after the
+    device-side packing has completed, rather than iterating over every pair in
+    Python.
+    """
     if bits not in (6,):
         raise ValueError("the recursive prototype currently packs the fixed 64-word/6-bit format")
-    values = indices.detach().to(dtype=torch.int64, device="cpu").reshape(-1)
+    values = indices.detach().to(dtype=torch.int64).reshape(-1)
     if bool((values < 0).any()) or bool((values >= (1 << bits)).any()):
         raise ValueError("index is outside the declared codebook")
     n = int(values.numel() if count is None else count)
     if n != values.numel():
         raise ValueError("count does not match indices")
-    out = torch.zeros((math.ceil(n * bits / 8),), dtype=torch.uint8)
-    for i, value in enumerate(values.tolist()):
-        bit = i * bits
-        integer = int(value) << (bit % 8)
-        byte = bit // 8
-        width = min(8 - bit % 8, bits)
-        out[byte] |= integer & 0xFF
-        if width < bits:
-            out[byte + 1] |= (integer >> 8) & 0xFF
-    return out
+    if n == 0:
+        return torch.empty((0,), dtype=torch.uint8, device=values.device)
+    bit = torch.arange(n, device=values.device, dtype=torch.long) * bits
+    byte = bit // 8
+    shift = bit % 8
+    out = torch.zeros((math.ceil(n * bits / 8),), dtype=torch.int64, device=values.device)
+    out.scatter_add_(0, byte, (values << shift) & 0xFF)
+    crossing = shift + bits > 8
+    if bool(crossing.any()):
+        out.scatter_add_(0, byte[crossing] + 1,
+                         values[crossing] >> (8 - shift[crossing]))
+    return out.to(torch.uint8)
 
 
 def unpack_indices(packed: torch.Tensor, count: int, bits: int = 6) -> torch.Tensor:
     """Inverse of :func:`pack_indices`; unused trailing bits are ignored."""
     if bits != 6 or count < 0:
         raise ValueError("the recursive prototype uses nonnegative count and 6-bit indices")
-    raw = packed.detach().to(dtype=torch.int64, device="cpu").reshape(-1)
+    raw = packed.detach().to(dtype=torch.int64).reshape(-1)
     if raw.numel() != math.ceil(count * bits / 8):
         raise ValueError("packed byte count does not match index count")
-    out = torch.empty((count,), dtype=torch.long)
-    for i in range(count):
-        bit = i * bits
-        integer = int(raw[bit // 8].item()) >> (bit % 8)
-        if bit % 8 + bits > 8:
-            integer |= int(raw[bit // 8 + 1].item()) << (8 - bit % 8)
-        out[i] = integer & ((1 << bits) - 1)
-    return out
+    if count == 0:
+        return torch.empty((0,), dtype=torch.long, device=raw.device)
+    bit = torch.arange(count, device=raw.device, dtype=torch.long) * bits
+    byte = bit // 8
+    shift = bit % 8
+    out = raw[byte] >> shift
+    crossing = shift + bits > 8
+    if bool(crossing.any()):
+        out = out.clone()
+        out[crossing] |= raw[byte[crossing] + 1] << (8 - shift[crossing])
+    return out & ((1 << bits) - 1)
 
 
 @dataclass
@@ -140,7 +151,7 @@ class StructuralVQCodec:
                 indices[start:end] = torch.cdist(normalized, codebook).argmin(dim=1)
         return StructuralVQState(uk.to(torch.bfloat16).cpu(), sk.to(torch.bfloat16).cpu(),
                                  vhk.to(torch.bfloat16).cpu(), scales.float().cpu(),
-                                 pack_indices(indices, 6), int(indices.numel()),
+                                 pack_indices(indices, 6).cpu(), int(indices.numel()),
                                  tuple(value.shape), self.codebook_key)
 
     @torch.no_grad()
@@ -150,7 +161,7 @@ class StructuralVQCodec:
         s = state.singular_values.to(device=device, dtype=torch.float32)
         vh = state.vh.to(device=device, dtype=torch.float32)
         low = (u * s) @ vh if s.numel() else torch.zeros(state.shape, device=device)
-        indices = unpack_indices(state.indices, state.pair_count).to(device)
+        indices = unpack_indices(state.indices.to(device=device), state.pair_count)
         scales = state.scales.to(device=device, dtype=torch.float32)
         pairs = torch.empty((state.pair_count, 2), device=device)
         nvec = self.block_size // 2
