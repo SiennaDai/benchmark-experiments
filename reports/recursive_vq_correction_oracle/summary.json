@@ -1,0 +1,27 @@
+{
+  "status": "completed",
+  "seeds_available": [
+    1
+  ],
+  "landmarks": [
+    128,
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "rows": 750,
+  "base_method": "recursive structural VQ, rank 8, p98, shared 64-word codebook",
+  "limitations": [
+    "reference-aligned E, not instantaneous quantization error",
+    "K5 is momentum-only spectral-map comparison; saved gradients/pre-Nesterov candidates are unavailable",
+    "oracle correction is offline and not evidence of online error feedback"
+  ],
+  "outputs": [
+    "per_landmark_metrics.csv",
+    "fixed_rank_summary.csv",
+    "budget_pareto.csv",
+    "error_spectrum.csv",
+    "int4_comparison.csv"
+  ]
+}

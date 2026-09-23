@@ -23,7 +23,9 @@ BASE_BITS=3.48828125  # overwritten from actual storage below
 
 def _snapshot(path):
     x=torch.load(path,map_location='cpu',weights_only=False)
-    return {int(t['parameter_id']):t['tensor'].float() for t in x['tensors']}, x.get('metadata',{})
+    # Formal snapshots identify tensors by parameter name (not numeric
+    # optimizer id); their serialized order is the canonical Muon ordering.
+    return [t['tensor'].float() for t in x['tensors']], x.get('metadata',{})
 
 def _state_from_entry(e):
     if e.get('_recursive_state_type')=='vq':
@@ -47,6 +49,13 @@ def _k5(x):
 def _metrics(a,b):
     d=(a-b).float(); na=a.norm(); nb=b.norm()
     return float(torch.dot(a.flatten(),b.flatten())/(na*nb).clamp_min(1e-30)), float(d.norm()/na.clamp_min(1e-30))
+
+def _metric_sums(a,b):
+    d=(a-b).float(); aa=a.float(); bb=b.float()
+    return {'dot':float(torch.dot(aa.flatten(),bb.flatten())), 'a2':float(aa.square().sum()), 'b2':float(bb.square().sum()), 'd2':float(d.square().sum()), **{}}
+
+def _finish_sums(x):
+    return (x['dot']/max(math.sqrt(x['a2']*x['b2']),1e-30), math.sqrt(x['d2']/max(x['a2'],1e-30)))
 
 def _corr_from_svd(vq,u,s,vh,r):
     if r==0: return vq
@@ -85,7 +94,7 @@ def _plots(out, agg, budget_rows, int4_rows):
         for seed in sorted({r['seed'] for r in budget_rows}):
             x=[r['total_bits_per_value'] for r in budget_rows if r['seed']==seed and r['update']==4096]; y=[r['k5_cosine_mean'] for r in budget_rows if r['seed']==seed and r['update']==4096]; ax.plot(x,y,'o-',label=f'VQ oracle s{seed}')
         if int4_rows:
-            x=[r['effective_bits_per_value'] for r in int4_rows if r['update']==4096]; y=[r['k5_cosine_mean'] for r in int4_rows]; ax.scatter(x,y,marker='x',label='structural INT4')
+            z=[r for r in int4_rows if r['update']==4096]; x=[r['effective_bits_per_value'] for r in z]; y=[r['k5_cosine_mean'] for r in z]; ax.scatter(x,y,marker='x',label='structural INT4')
         ax.set_xlabel('total effective bits/value'); ax.set_ylabel('K5-map cosine'); ax.grid(alpha=.25); ax.legend(); fig.tight_layout(); fig.savefig(out/'storage_fidelity_pareto.png',dpi=140); plt.close(fig)
 
 def main():
@@ -113,7 +122,7 @@ def main():
             for pid in range(30):
                 entry=raw['optimizer']['state'][str(pid)] if str(pid) in raw['optimizer']['state'] else raw['optimizer']['state'][pid]
                 st=_state_from_entry(entry['compressed_momentum']); base_bits += StructuralVQCodec(codebook,rank=8,block_size=2048).storage_bits(st)
-            base_bits += codebook.numel()*32; base_bpv=base_bits*8/n
+            base_bits += codebook.numel()*32; base_bpv=base_bits/n
             provenance['available'].append({'seed':seed,'update':update,'scalar_count':n,'base_vq_bits_per_value':base_bpv})
             tensor_cache=[]
             for pid,vq in enumerate(vqs):
@@ -125,7 +134,8 @@ def main():
                     # correction payload is exact BF16 factor cost, not FP32 oracle E
                     if r: cost=2*r*(ref.shape[0]+ref.shape[1])
                     else: cost=0
-                    row={'seed':seed,'update':update,'parameter_id':pid,'shape':str(tuple(ref.shape)),'rank':r,'correction_bytes':cost,'correction_bits_per_value':cost*8/n,'total_bits_per_value':base_bpv+cost*8/n,'momentum_cosine':c,'momentum_rel_l2':rl,'k5_cosine':kc,'k5_rel_l2':krl,**sm}
+                    ms=_metric_sums(corr,ref); ks=_metric_sums(_k5(corr),_k5(ref))
+                    row={'seed':seed,'update':update,'parameter_id':pid,'shape':str(tuple(ref.shape)),'rank':r,'correction_bytes':cost,'correction_bits_per_value':cost*8/n,'total_bits_per_value':base_bpv+cost*8/n,'momentum_cosine':c,'momentum_rel_l2':rl,'k5_cosine':kc,'k5_rel_l2':krl,'m_dot':ms['dot'],'m_a2':ms['a2'],'m_b2':ms['b2'],'m_d2':ms['d2'],'k_dot':ks['dot'],'k_a2':ks['a2'],'k_b2':ks['b2'],'k_d2':ks['d2'],**sm}
                     rows.append(row)
                 spectra.append({'seed':seed,'update':update,'parameter_id':pid,'shape':str(tuple(ref.shape)),'error_norm':float(e.norm()),**sm})
             # Greedy MSE-gain/byte allocation. Each singular component gives
@@ -142,10 +152,13 @@ def main():
                     # rank components must be prefix ranks for a valid SVD
                     if j!=selected[pid]: continue
                     selected[pid]+=1; used+=cost; gain+=g
-                vals=[]; k5vals=[]; cvals=[]; lvals=[]
+                msum={'dot':0.,'a2':0.,'b2':0.,'d2':0.}; ksum={'dot':0.,'a2':0.,'b2':0.,'d2':0.}
                 for pid,ref,vq,U,S,Vh,sm in tensor_cache:
-                    rr=selected[pid]; corr=_corr_from_svd(vq,U,S,Vh,rr); c,rl=_metrics(corr,ref); kc,krl=_metrics(_k5(corr),_k5(ref)); vals.append(c); lvals.append(rl); k5vals.append(kc)
-                budget_rows.append({'seed':seed,'update':update,'target_additional_bits_per_value':target,'budget_bytes':budget,'used_bytes':used,'actual_additional_bits_per_value':used*8/n,'total_bits_per_value':base_bpv+used*8/n,'mse_gain':gain,'momentum_cosine_mean':sum(vals)/len(vals),'momentum_rel_l2_mean':sum(lvals)/len(lvals),'k5_cosine_mean':sum(k5vals)/len(k5vals)})
+                    rr=selected[pid]; corr=_corr_from_svd(vq,U,S,Vh,rr)
+                    for key,val in _metric_sums(corr,ref).items(): msum[key]+=val
+                    for key,val in _metric_sums(_k5(corr),_k5(ref)).items(): ksum[key]+=val
+                mc,ml=_finish_sums(msum); kc,kl=_finish_sums(ksum)
+                budget_rows.append({'seed':seed,'update':update,'target_additional_bits_per_value':target,'budget_bytes':budget,'used_bytes':used,'actual_additional_bits_per_value':used*8/n,'total_bits_per_value':base_bpv+used*8/n,'mse_gain':gain,'momentum_cosine_mean':mc,'momentum_rel_l2_mean':ml,'k5_cosine_mean':kc,'k5_rel_l2_mean':kl})
     # Gap closure is defined relative to the rank-0 VQ row for the same
     # tensor/landmark (FP32 is cosine 1 and relative-L2 0).
     baselines={(r['seed'],r['update'],r['parameter_id']):r for r in rows if r['rank']==0}
@@ -159,7 +172,8 @@ def main():
     agg=[]
     for key in sorted({(r['seed'],r['update'],r['rank']) for r in rows}):
         ss,uu,rr=key; x=[r for r in rows if (r['seed'],r['update'],r['rank'])==key];
-        agg.append({'seed':ss,'update':uu,'rank':rr,'correction_bits_per_value':sum(r['correction_bits_per_value'] for r in x),'total_bits_per_value':sum(r['total_bits_per_value'] for r in x)/len(x),'momentum_cosine_mean':sum(r['momentum_cosine'] for r in x)/len(x),'momentum_rel_l2_mean':sum(r['momentum_rel_l2'] for r in x)/len(x),'k5_cosine_mean':sum(r['k5_cosine'] for r in x)/len(x),'k5_rel_l2_mean':sum(r['k5_rel_l2'] for r in x)/len(x)})
+        ms={k:sum(r['m_'+k] for r in x) for k in ('dot','a2','b2','d2')}; ks={k:sum(r['k_'+k] for r in x) for k in ('dot','a2','b2','d2')}; mc,ml=_finish_sums(ms); kc,kl=_finish_sums(ks)
+        agg.append({'seed':ss,'update':uu,'rank':rr,'correction_bits_per_value':sum(r['correction_bits_per_value'] for r in x),'total_bits_per_value':sum(r['total_bits_per_value'] for r in x)/len(x),'momentum_cosine_mean':mc,'momentum_rel_l2_mean':ml,'k5_cosine_mean':kc,'k5_rel_l2_mean':kl})
     _write_csv(out/'fixed_rank_summary.csv',agg)
     # A compact comparison table for the uncorrected recursive INT4 baseline.
     for seed in seeds:
@@ -168,12 +182,12 @@ def main():
         for update in LANDMARKS:
             cp=croot/f'int4_update_{update:06d}.pt'; sp=sroot/f'update_{update:06d}.pt'
             if not cp.exists() or not sp.exists(): continue
-            refs,_=_snapshot(sp); ck=torch.load(cp,map_location='cpu',weights_only=False); vals=[]
+            refs,_=_snapshot(sp); ck=torch.load(cp,map_location='cpu',weights_only=False); vals=[]; int4_bits=0
             for pid in range(30):
                 entry=ck['optimizer']['state'][str(pid)] if str(pid) in ck['optimizer']['state'] else ck['optimizer']['state'][pid]
-                st=_state_from_entry(entry['compressed_momentum']); v=StructuralINT4Codec(rank=8,block_size=2048).decode(st)
+                st=_state_from_entry(entry['compressed_momentum']); codec4=StructuralINT4Codec(rank=8,block_size=2048); int4_bits += codec4.storage_bits(st); v=codec4.decode(st)
                 vals.append((_metrics(v,refs[pid]),_metrics(_k5(v),_k5(refs[pid]))))
-            int4_rows.append({'seed':seed,'update':update,'momentum_cosine_mean':sum(x[0][0] for x in vals)/len(vals),'momentum_rel_l2_mean':sum(x[0][1] for x in vals)/len(vals),'k5_cosine_mean':sum(x[1][0] for x in vals)/len(vals),'k5_rel_l2_mean':sum(x[1][1] for x in vals)/len(vals),'effective_bits_per_value':4.48828125})
+            int4_rows.append({'seed':seed,'update':update,'momentum_cosine_mean':sum(x[0][0] for x in vals)/len(vals),'momentum_rel_l2_mean':sum(x[0][1] for x in vals)/len(vals),'k5_cosine_mean':sum(x[1][0] for x in vals)/len(vals),'k5_rel_l2_mean':sum(x[1][1] for x in vals)/len(vals),'effective_bits_per_value':int4_bits*1.0/_state_count(refs)})
     _write_csv(out/'int4_comparison.csv',int4_rows)
     _plots(out,agg,budget_rows,int4_rows)
     json.dump(provenance,(out/'provenance.json').open('w'),indent=2)

@@ -1,0 +1,45 @@
+{
+  "requested_seeds": [
+    1,
+    0
+  ],
+  "available": [
+    {
+      "seed": 1,
+      "update": 128,
+      "scalar_count": 10616832,
+      "base_vq_bits_per_value": 3.488594714506173
+    },
+    {
+      "seed": 1,
+      "update": 512,
+      "scalar_count": 10616832,
+      "base_vq_bits_per_value": 3.488594714506173
+    },
+    {
+      "seed": 1,
+      "update": 1024,
+      "scalar_count": 10616832,
+      "base_vq_bits_per_value": 3.488594714506173
+    },
+    {
+      "seed": 1,
+      "update": 2048,
+      "scalar_count": 10616832,
+      "base_vq_bits_per_value": 3.488594714506173
+    },
+    {
+      "seed": 1,
+      "update": 4096,
+      "scalar_count": 10616832,
+      "base_vq_bits_per_value": 3.488594714506173
+    }
+  ],
+  "missing": [
+    {
+      "seed": 0,
+      "reason": "recursive checkpoints absent"
+    }
+  ],
+  "interpretation": "E=M_ref-M_vq is reference-aligned trajectory error; not instantaneous pre-quantization error."
+}
