@@ -318,6 +318,14 @@ class RecursiveMuon(torch.optim.Optimizer):
                 identity = ("vq", getattr(codec, "codebook_key", "default"))
                 if identity not in codebook_ids:
                     codebook_ids.add(identity); codebook_bits += int(codec.codebook.numel() * 32)
-        return {"tensors": rows, "persistent_bits": sum(r["storage_bits"] for r in rows) + codebook_bits,
-                "codebook_bits": codebook_bits, "compressed_muon_tensor_count": sum("key" not in r for r in rows),
+        persistent_bits = sum(r["storage_bits"] for r in rows) + codebook_bits
+        # Keep the common run-summary contract in addition to the recursive
+        # storage-specific fields.  The summary writer records bytes, while
+        # this optimizer also exposes the exact serialized bit count.
+        persistent_bytes = (persistent_bits + 7) // 8
+        return {"logical_tensor_bytes": persistent_bytes,
+                "unique_storage_bytes": persistent_bytes,
+                "tensors": rows, "persistent_bits": persistent_bits,
+                "codebook_bits": codebook_bits,
+                "compressed_muon_tensor_count": sum("key" not in r for r in rows),
                 "structure_mode": "exact_svd_oracle"}

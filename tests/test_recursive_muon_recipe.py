@@ -88,3 +88,14 @@ def test_recursive_persistence_metadata_is_complete_for_run_manifest():
         "quantized_state_names": ["compressed_momentum"], "states_left_fp32": []}
     assert metadata["quantizer"] == "structural_recursive_codec"
     assert metadata["actual_optimizer_memory_reduction"] is True
+
+
+def test_recursive_state_summary_exposes_common_byte_contract():
+    parameter = torch.nn.Parameter(torch.zeros(4, 4))
+    # The concrete recursive optimizer is exercised by the training path; this
+    # assertion protects the summary contract that path consumes.
+    from optim.muon_recursive import RecursiveMuon
+    optimizer = RecursiveMuon([{"params": [parameter], "optimizer_group": "muon"}], codecs={}, lr=0.1)
+    summary = optimizer.recursive_state_summary()
+    assert summary["unique_storage_bytes"] == summary["logical_tensor_bytes"] == 0
+    assert summary["persistent_bits"] == summary["codebook_bits"] == 0
