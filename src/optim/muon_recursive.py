@@ -370,11 +370,19 @@ class RecursiveMuon(torch.optim.Optimizer):
                  muon_nesterov=True, muon_ns_steps=5,
                  muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7):
         self.codecs = codecs
+        self._mechanism_observer = None
+        self._mechanism_update = None
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
                         muon_momentum=muon_momentum, muon_nesterov=muon_nesterov,
                         muon_ns_steps=muon_ns_steps, muon_ns_coefficients=tuple(muon_ns_coefficients),
                         muon_eps=muon_eps)
         super().__init__(params, defaults)
+
+    def set_mechanism_observer(self, observer):
+        self._mechanism_observer = observer
+
+    def set_mechanism_update(self, update):
+        self._mechanism_update = int(update)
 
     @staticmethod
     def _serialize_encoded(value):
@@ -442,12 +450,21 @@ class RecursiveMuon(torch.optim.Optimizer):
                     if codec is None:
                         raise KeyError("missing recursive codec for Muon parameter")
                     compressed = state.get("compressed_momentum")
-                    momentum = torch.zeros_like(p, dtype=torch.float32) if compressed is None else codec.decode(compressed, device=p.device)
+                    previous_decoded = torch.zeros_like(p, dtype=torch.float32) if compressed is None else codec.decode(compressed, device=p.device)
+                    momentum = previous_decoded
                     momentum = momentum.mul(group["muon_momentum"]).add(grad)
                     direction = grad.add(momentum, alpha=group["muon_momentum"]) if group["muon_nesterov"] else momentum
                     update = zeropower_newton_schulz(direction, group["muon_ns_steps"], group["muon_ns_coefficients"], group["muon_eps"])
-                    p.copy_(p.float().mul(1 - group["lr"] * group["weight_decay"]).add(update, alpha=-group["lr"]).to(p.dtype))
-                    state["compressed_momentum"] = codec.encode(momentum)
+                    updated = p.float().mul(1 - group["lr"] * group["weight_decay"]).add(update, alpha=-group["lr"])
+                    encoded = codec.encode(momentum)
+                    persisted_decoded = codec.decode(encoded, device=p.device) if self._mechanism_observer is not None else None
+                    if self._mechanism_observer is not None:
+                        self._mechanism_observer(parameter=p, gradient=grad, momentum_prev=previous_decoded,
+                            momentum_candidate=momentum, momentum_persisted_decoded=persisted_decoded,
+                            direction=direction, updated=updated, group=group, update=self._mechanism_update,
+                            compressed_state=encoded)
+                    p.copy_(updated.to(p.dtype))
+                    state["compressed_momentum"] = encoded
                 else:
                     step = state.get("step", 0) + 1; state["step"] = step
                     beta1, beta2 = group["betas"]

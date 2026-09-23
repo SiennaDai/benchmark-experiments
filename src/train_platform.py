@@ -22,6 +22,7 @@ from optim.lowp_adapter import make_optimizer, optimizer_state_summary
 from optim.state_simulation import persistence_metadata
 from optim.adamw_state_diagnostics import AdamWStateDiagnostics, MuonStateDiagnostics
 from optim.muon_update_fidelity import MuonUpdateFidelityObserver, save_snapshot
+from optim.muon_mechanism import MuonMechanismObserver
 
 
 class NonFiniteMetricError(RuntimeError):
@@ -252,6 +253,33 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
         optimizer.set_diagnostic_observer(combined_observer)
         if fidelity_enabled:
             fidelity_writer = EventWriter(run_dir/"muon_update_fidelity.jsonl", run_id, segment)
+    mechanism_observer = None
+    mechanism_raw_updates = cfg["logging"].get("muon_mechanism_snapshot_updates", [])
+    mechanism_scalar_updates = cfg["logging"].get("muon_mechanism_scalar_updates", [])
+    if mechanism_raw_updates or mechanism_scalar_updates:
+        if cfg["optimizer"]["name"] not in {"reference_muon", "recursive_muon"}:
+            raise ValueError("Muon mechanism diagnostics require reference_muon or recursive_muon")
+        names = {id(parameter): name for name, parameter in model.named_parameters()}
+        mechanism_observer = MuonMechanismObserver(
+            run_dir=run_dir, optimizer_name=cfg["optimizer"]["name"],
+            parameter_names=names, raw_updates=mechanism_raw_updates,
+            scalar_updates=mechanism_scalar_updates,
+            metadata={"seed": cfg["experiment"]["seed"], "data_seed": cfg["experiment"]["data_seed"],
+                      "algorithm_seed": cfg["experiment"]["algorithm_seed"],
+                      "recipe_fingerprint": cfg["fingerprint"], "protocol_id": cfg["experiment"]["protocol_id"],
+                      "data_fingerprint": manifest["fingerprint"], "tokens_per_update": cfg["derived"]["tokens_per_update"],
+                      "sequence_length": cfg["model"]["sequence_length"],
+                      "schedule_total_updates": cfg["derived"]["schedule_total_updates"],
+                      "muon_momentum": cfg["optimizer"].get("muon_momentum", .95),
+                      "muon_nesterov": cfg["optimizer"].get("muon_nesterov", True),
+                      "muon_ns_steps": cfg["optimizer"].get("muon_ns_steps", 5),
+                      "muon_ns_coefficients": cfg["optimizer"].get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315]),
+                      "muon_eps": cfg["optimizer"].get("muon_eps", 1e-7),
+                      "raw_updates": list(map(int, mechanism_raw_updates)),
+                      "scalar_updates": list(map(int, mechanism_scalar_updates))})
+        optimizer.set_mechanism_observer(mechanism_observer.observe)
+        write_json(run_dir/"mechanism_manifest.json", {"raw_updates": mechanism_raw_updates, "scalar_updates": mechanism_scalar_updates,
+                    "snapshot_bytes_are_fp32_cpu": True, "observer_only": True, "optimizer_name": cfg["optimizer"]["name"]})
     started = time.monotonic(); status, reason = "completed", None
     divergence = None; last_finite_train_metric = None; active_update = completed; attempted_processed = processed
     print(f"[run] {run_id} | {cfg['optimizer']['name']} | {device} | {cfg['precision']['compute']} | {cfg['derived']['total_updates']} updates | schedule horizon {cfg['derived']['schedule_total_updates']} | {cfg['train']['target_tokens']} tokens")
@@ -278,6 +306,9 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
             lr = require_finite_metric("learning_rate", learning_rate(update,cfg["derived"]["schedule_total_updates"],cfg["optimizer"]["lr"],cfg["schedule"]["warmup_updates"],cfg["schedule"]["final_lr_ratio"],cfg["schedule"]["name"]))
             for group in optimizer.param_groups: group["lr"] = lr
             if fidelity_observer is not None: fidelity_observer.begin_update(update)
+            if mechanism_observer is not None:
+                mechanism_observer.begin_update(update)
+                optimizer.set_mechanism_update(update)
             optimizer.step(); optimizer.zero_grad(set_to_none=True)
             # The collector observes detached values created in ReferenceAdamW:
             # v before persistence and its next-step persisted counterpart.
@@ -308,6 +339,9 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
                     snapshot_path = run_dir/"muon_momentum_snapshots"/f"update_{update:06d}.pt"
                     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
                     save_snapshot(snapshot_path, metadata=metadata, tensors=snapshot_tensors)
+            if mechanism_observer is not None:
+                mechanism_observer.finish_update(update=update, processed_target_tokens=processed+n_tokens,
+                                                 train_nll=train_nll, learning_rate=lr)
             for name,p in model.named_parameters():
                 _first_nonfinite_tensor_metric(f"parameter:{name}", p)
             completed, processed = update, processed+n_tokens

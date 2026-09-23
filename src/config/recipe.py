@@ -27,7 +27,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates", "muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -158,6 +158,12 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         raise RecipeError("logging.muon_momentum_snapshot_updates must be a list of positive update integers")
     if len(set(snapshots)) != len(snapshots):
         raise RecipeError("logging.muon_momentum_snapshot_updates must not contain duplicates")
+    for key in ("muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"):
+        values = cfg["logging"].get(key, [])
+        if not isinstance(values, list) or any(not isinstance(x, int) or isinstance(x, bool) or x <= 0 for x in values):
+            raise RecipeError(f"logging.{key} must be a list of positive update integers")
+        if len(set(values)) != len(values):
+            raise RecipeError(f"logging.{key} must not contain duplicates")
     if e["max_target_tokens"] % m["sequence_length"]:
         raise RecipeError("eval.max_target_tokens must be divisible by sequence_length")
     cfg["derived"] = {"tokens_per_update": tokens_per_update, "total_updates": total_updates,

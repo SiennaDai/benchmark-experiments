@@ -46,10 +46,18 @@ class ReferenceMuon(torch.optim.Optimizer):
                         state_quantization_block_size=state_quantization_block_size)
         super().__init__(params, defaults)
         self._diagnostic_observer = None
+        self._mechanism_observer = None
+        self._mechanism_update = None
 
     def set_diagnostic_observer(self, observer):
         """Install an opt-in detached/read-only observer outside the state dict."""
         self._diagnostic_observer = observer
+
+    def set_mechanism_observer(self, observer):
+        self._mechanism_observer = observer
+
+    def set_mechanism_update(self, update):
+        self._mechanism_update = int(update)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -71,6 +79,10 @@ class ReferenceMuon(torch.optim.Optimizer):
                     persisted = persist_state(momentum, group["state_simulation"], "muon_momentum",
                         quantization_granularity=group.get("state_quantization_granularity", "per_state_tensor"),
                         quantization_block_size=group.get("state_quantization_block_size", 2048))
+                    if self._mechanism_observer is not None:
+                        self._mechanism_observer(parameter=p, gradient=grad, momentum_prev=state.get("muon_momentum", torch.zeros_like(p, dtype=torch.float32)),
+                            momentum_candidate=momentum, momentum_persisted_decoded=persisted,
+                            direction=direction, updated=updated, group=group, update=self._mechanism_update)
                     if self._diagnostic_observer is not None:
                         self._diagnostic_observer(parameter=p, momentum_pre=momentum, momentum_post=persisted,
                                                   updated=updated, group=group)

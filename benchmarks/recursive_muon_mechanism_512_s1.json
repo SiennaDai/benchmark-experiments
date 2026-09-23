@@ -1,0 +1,26 @@
+{
+  "name": "recursive_muon_mechanism_512_s1",
+  "runs": [
+    {"run_id": "mechanism_fp32_muon_4096_s1", "recipe": "../recipes/mechanism_fp32_muon_4096_s1.json"},
+    {"run_id": "mechanism_recursive_vq_int3_4096_s1", "recipe": "../recipes/mechanism_recursive_vq_int3_4096_s1.json"}
+  ],
+  "vary": [
+    "optimizer.name",
+    "optimizer.recursive_rank",
+    "optimizer.recursive_block_size",
+    "optimizer.recursive_factor_dtype",
+    "optimizer.recursive_structure_mode",
+    "optimizer.recursive_representation",
+    "optimizer.recursive_codebook_path",
+    "optimizer.recursive_codebook_key"
+  ],
+  "trajectory": {
+    "group_by": ["experiment.seed"],
+    "treatment_field": "optimizer.name",
+    "control_value": "reference_muon",
+    "treatment_values": ["recursive_muon"],
+    "landmark_updates": [1, 8, 32, 128, 512]
+  },
+  "runtime": {"device": "cuda:0", "max_wall_seconds": 39600},
+  "report": {"output": "reports/recursive_muon_mechanism_512_s1"}
+}
