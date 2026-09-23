@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 usage() {
   echo "Usage: $0 RECIPE RUN_ID" >&2
-  echo "Environment: DATA_ROOT OUTPUT_ROOT RESUME_CHECKPOINT MAX_WALL_SECONDS KAGGLE_GPU_INDEX KAGGLE_INSTALL_DEPS DRY_RUN_ONLY" >&2
+  echo "Environment: DATA_ROOT OUTPUT_ROOT RESUME_CHECKPOINT STOP_AT_UPDATE MAX_WALL_SECONDS KAGGLE_GPU_INDEX KAGGLE_INSTALL_DEPS DRY_RUN_ONLY" >&2
 }
 
 if [[ $# -ne 2 ]]; then
@@ -26,6 +26,9 @@ python_bin="${PYTHON_BIN:-python}"
 [[ "$gpu_index" =~ ^[0-9]+$ ]] || { echo "KAGGLE_GPU_INDEX must be a single non-negative GPU index." >&2; exit 64; }
 if [[ -n "${MAX_WALL_SECONDS:-}" ]]; then
   [[ "$MAX_WALL_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "MAX_WALL_SECONDS must be a non-negative number." >&2; exit 64; }
+fi
+if [[ -n "${STOP_AT_UPDATE:-}" ]]; then
+  [[ "$STOP_AT_UPDATE" =~ ^[1-9][0-9]*$ ]] || { echo "STOP_AT_UPDATE must be a positive integer." >&2; exit 64; }
 fi
 if [[ -n "${RESUME_CHECKPOINT:-}" ]]; then
   [[ -f "$RESUME_CHECKPOINT" ]] || { echo "Resume checkpoint not found: $RESUME_CHECKPOINT" >&2; exit 66; }
@@ -54,6 +57,9 @@ if [[ -n "${RESUME_CHECKPOINT:-}" ]]; then
 fi
 if [[ -n "${MAX_WALL_SECONDS:-}" ]]; then
   args+=(--max-wall-seconds "$MAX_WALL_SECONDS")
+fi
+if [[ -n "${STOP_AT_UPDATE:-}" ]]; then
+  args+=(--stop-at-update "$STOP_AT_UPDATE")
 fi
 
 exec "${args[@]}"

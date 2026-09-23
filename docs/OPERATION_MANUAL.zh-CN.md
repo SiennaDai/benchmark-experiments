@@ -117,6 +117,11 @@ CUDA 匹配的 PyTorch；只有 preflight 报缺少 add-on 时才设置
 `KAGGLE_INSTALL_DEPS=1` 安装 `requirements/kaggle.txt`，该文件不会重新安装
 Torch。
 
+分阶段递归实验使用同一个 launcher：设置 `STOP_AT_UPDATE=N` 即可在第 N
+ 个 update 完成后保存可恢复 checkpoint 并正常退出。该变量只控制运行时
+ gate，不会改变 recipe 的 4096-update scheduler horizon；下一阶段继续使用
+ 同一 `RUN_ID`，并设置 `RESUME_CHECKPOINT` 指向上一阶段的 `latest.pt`。
+
 运行结果写在 `/kaggle/working/runs/<RUN_ID>`。Notebook runtime 结束前应
 保存 Notebook version；需要跨 runtime 恢复的大 checkpoint 应发布为私有
 Kaggle Dataset，再挂载并设置：

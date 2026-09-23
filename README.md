@@ -92,6 +92,9 @@ MAX_WALL_SECONDS=39600 \
 `run_kaggle.sh` exposes exactly one physical GPU (selected by
 `KAGGLE_GPU_INDEX`, default `0`) as `cuda:0`, performs a strict CUDA/BF16/data
 dry-run, then starts training. It never silently selects DDP or changes precision.
+For staged recursive runs, set `STOP_AT_UPDATE=N`; this runtime-only gate is
+passed after the same preflight and does not change the recipe's scheduler
+horizon. Resume the same run ID with `RESUME_CHECKPOINT` and a later gate.
 Set `DRY_RUN_ONLY=1` for preflight only. Resume from a mounted checkpoint with:
 
 ```bash
