@@ -1,0 +1,10 @@
+{
+  "script": "scripts/analyze_vq_preconditioning_oracle.py",
+  "status": "blocked_protocol_mismatch",
+  "source_sha256": {
+    "snapshot": "b240dc8b6a03908a63611eee1b6abb7822851b5473d24059c3c4dfaa09739253",
+    "vq_checkpoint": "576d1e128356b550da713373caa21537df7b5108c69fb9cbc492ad626dcd3fa9",
+    "int4_checkpoint": "93e10f4669a511a30c242b7eaa350b3d8548bdeb2fc541d8ef9173ecd8d02a0f",
+    "codebook": "3af21af990eadf898d75762d16803c2396ca75eb3b88fb2a17a44b3208d7f123"
+  }
+}

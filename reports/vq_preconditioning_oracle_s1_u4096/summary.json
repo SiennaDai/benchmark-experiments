@@ -1,0 +1,44 @@
+{
+  "status": "blocked_protocol_mismatch",
+  "seed": 1,
+  "update": 4096,
+  "candidate_sweep_executed": false,
+  "recursive_checkpoint_reproduction": {
+    "vq": true,
+    "int4": true
+  },
+  "one_shot_pipeline_matches_recursive_metric": false,
+  "rows": [
+    {
+      "method": "recursive_vq",
+      "bits_per_value": 3.488594714506173,
+      "momentum_cosine": 0.49133638139137814,
+      "momentum_rel_l2": 1.0389352395441256,
+      "k5_cosine": 0.234495507719303,
+      "k5_rel_l2": 1.2213082997296623
+    },
+    {
+      "method": "recursive_int4",
+      "bits_per_value": 4.488208912037037,
+      "momentum_cosine": 0.42079666087834844,
+      "momentum_rel_l2": 1.0788740950086153,
+      "k5_cosine": 0.16015008359782523,
+      "k5_rel_l2": 1.2756482762634649
+    },
+    {
+      "method": "one_shot_fp32_reencode_vq",
+      "bits_per_value": 3.488594714506173,
+      "momentum_cosine": 0.9918095869078085,
+      "momentum_rel_l2": 0.13019742819867045,
+      "k5_cosine": 0.8810145746569343,
+      "k5_rel_l2": 0.48235200621421953
+    }
+  ],
+  "interpretation": "recursive checkpoint metrics are trajectory-aligned (M_ref versus decoded M_vq); the proposed M -> C8+R -> VQ one-shot screen is a different object and cannot be used to claim recursive improvement.",
+  "files": {
+    "snapshot": "/home/sienna/projects/experiments/lowp-optimizer-bench/reports/muon_update_fidelity_formal_s0_s1_results/muon-fidelity-formal/fp32_muon_snapshot_s1/muon_momentum_snapshots/update_004096.pt",
+    "vq_checkpoint": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_s1_checkpoints/vq_int3_update_004096.pt",
+    "int4_checkpoint": "/home/sienna/projects/experiments/lowp-optimizer-bench/artifacts/recursive_muon_s1_checkpoints/int4_update_004096.pt",
+    "codebook": "/home/sienna/projects/experiments/lowp-optimizer-bench/reports/muon_vector_int3_robustness/calibration_codebooks.pt"
+  }
+}
