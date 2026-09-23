@@ -133,7 +133,7 @@ def test_recursive_checkpoint_state_roundtrip():
     assert torch.equal(opt2.state[q]["compressed_momentum"].indices, opt.state[p]["compressed_momentum"].indices)
 
 
-def test_recursive_checkpoint_resume_matches_continuous_cpu():
+def test_recursive_checkpoint_resume_matches_continuous_cpu(tmp_path):
     torch.manual_seed(21)
     gradients = [torch.randn(16, 16) for _ in range(4)]
     p_cont = torch.nn.Parameter(torch.eye(16)); c_cont = StructuralVQCodec(codebook(), rank=8)
@@ -148,6 +148,9 @@ def test_recursive_checkpoint_resume_matches_continuous_cpu():
     for grad in gradients[:2]:
         p_split.grad = grad; o_split.step()
     checkpoint = {"model": p_split.detach().clone(), "optimizer": o_split.state_dict()}
+    checkpoint_path = tmp_path / "recursive.pt"
+    torch.save(checkpoint, checkpoint_path)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     p_resume = torch.nn.Parameter(checkpoint["model"].clone()); c_resume = StructuralVQCodec(codebook(), rank=8)
     o_resume = RecursiveMuon([{"params": [p_resume], "optimizer_group": "muon", "weight_decay": 0.0}],
                              {id(p_resume): c_resume}, lr=.001)
