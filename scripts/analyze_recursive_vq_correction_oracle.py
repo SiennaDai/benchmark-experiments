@@ -54,8 +54,8 @@ def _corr_from_svd(vq,u,s,vh,r):
     B=(s[:rr].sqrt()[:,None]*vh[:rr]).to(torch.bfloat16)
     return vq + A.float()@B.float()
 
-def _svd_stats(e):
-    s=torch.linalg.svdvals(e); en=float(s.square().sum())
+def _svd_stats(e, singular_values=None):
+    s=singular_values if singular_values is not None else torch.linalg.svdvals(e); en=float(s.square().sum())
     return {f'energy_r{r}':float(s[:min(r,s.numel())].square().sum()/max(en,1e-30)) for r in (1,2,4,8)}
 
 def _state_count(refs): return sum(x.numel() for x in refs)
@@ -116,7 +116,7 @@ def main():
             tensor_cache=[]
             for pid,vq in enumerate(vqs):
                 ref=refs[pid]
-                e=ref-vq; U,S,Vh=torch.linalg.svd(e,full_matrices=False); sm=_svd_stats(e)
+                e=ref-vq; U,S,Vh=torch.linalg.svd(e,full_matrices=False); sm=_svd_stats(e,S)
                 tensor_cache.append((pid,ref,vq,U,S,Vh,sm))
                 for r in RANKS:
                     corr=_corr_from_svd(vq,U,S,Vh,r); c,rl=_metrics(corr,ref); kc,krl=_metrics(_k5(corr),_k5(ref))
