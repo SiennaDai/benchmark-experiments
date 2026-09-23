@@ -50,7 +50,9 @@ def test_gate_report_requires_landmark_checkpoint_and_uses_event_values(tmp_path
 
 def test_vq_recipe_loads_frozen_opposite_seed_codebook():
     cfg = load_recipe(ROOT / "recipes/recursive_muon_structural_vq_int3_1024_s0.json")
-    blob = torch.load(ROOT / cfg["optimizer"]["recursive_codebook_path"], map_location="cpu", weights_only=False)
+    codebook_path = ROOT / cfg["optimizer"]["recursive_codebook_path"]
+    assert codebook_path.is_file()
+    blob = torch.load(codebook_path, map_location="cpu", weights_only=False)
     cb = blob["codebooks"][cfg["optimizer"]["recursive_codebook_key"]]
     assert tuple(cb.shape) == (64, 2)
     assert torch.any(cb.square().sum(dim=1) == 0)
