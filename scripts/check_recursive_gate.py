@@ -47,16 +47,16 @@ FIELDS = {
 }
 
 
-def manifest_fingerprint(recipe: dict, root: Path) -> str | None:
+def manifest_fingerprint(recipe: dict, root: Path, data_root: Path | None = None) -> str | None:
     path = Path(recipe["data"]["manifest"])
-    if not path.is_absolute(): path = root / path
+    if not path.is_absolute(): path = (data_root or root) / path
     try:
         return json.loads(path.read_text())["fingerprint"]
     except (OSError, KeyError, json.JSONDecodeError):
         return None
 
 
-def compare(fp32_path: Path, candidates: list[Path], root: Path) -> dict:
+def compare(fp32_path: Path, candidates: list[Path], root: Path, data_root: Path | None = None) -> dict:
     fp = load_recipe(fp32_path)
     rows = []
     expected_dataset = "30152c9b80e86cadbc9215f83794d92011bbbf5b827a2aedb31aa5d50c78fe18"
@@ -66,7 +66,7 @@ def compare(fp32_path: Path, candidates: list[Path], root: Path) -> dict:
         for name, getter in FIELDS.items():
             if getter(fp) != getter(candidate):
                 mismatches.append({"field": name, "fp32": getter(fp), "candidate": getter(candidate)})
-        fp_manifest = manifest_fingerprint(fp, root); candidate_manifest = manifest_fingerprint(candidate, root)
+        fp_manifest = manifest_fingerprint(fp, root, data_root); candidate_manifest = manifest_fingerprint(candidate, root, data_root)
         if fp_manifest != expected_dataset or candidate_manifest != expected_dataset:
             mismatches.append({"field": "dataset.fingerprint", "fp32": fp_manifest, "candidate": candidate_manifest, "expected": expected_dataset})
         rows.append({"candidate": str(candidate_path), "compatible": not mismatches, "mismatch_count": len(mismatches), "mismatches": mismatches})
@@ -106,11 +106,12 @@ def main() -> int:
     parser.add_argument("--fp32-recipe", type=Path, required=True)
     parser.add_argument("--candidate-recipe", type=Path, action="append", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--data-root", type=Path, default=None, help="root containing the recipe's relative data/ path")
     parser.add_argument("--fp32-run", type=Path)
     parser.add_argument("--candidate-run", type=Path)
     parser.add_argument("--landmark", type=int, choices=(128, 512, 1024, 2048, 4096))
     args = parser.parse_args(); root = Path(__file__).resolve().parents[1]
-    report = compare(args.fp32_recipe, args.candidate_recipe, root)
+    report = compare(args.fp32_recipe, args.candidate_recipe, root, args.data_root.resolve() if args.data_root else None)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "fp32_protocol_compatibility.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     csv_rows = []
