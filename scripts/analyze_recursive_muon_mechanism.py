@@ -126,6 +126,27 @@ def main():
                 x = json.loads(line)
                 if x.get("event_type") == "eval": out[int(x["completed_updates"])] = x.get("nll")
         return out
+    plots = out / "plots"; plots.mkdir(exist_ok=True)
+    try:
+        import matplotlib.pyplot as plt
+        x = [r["update"] for r in rows]
+        series = [("persistence_quantization_relative_l2", "instantaneous persistence rel-L2"),
+                  ("momentum_trajectory_cosine", "momentum cosine vs FP32"),
+                  ("gradient_cosine", "gradient cosine vs FP32"),
+                  ("nesterov_direction_cosine", "Nesterov direction cosine vs FP32"),
+                  ("k5_update_cosine", "executed K5 update cosine vs FP32"),
+                  ("local_one_step_k5_cosine", "local previous-persistence K5 cosine")]
+        for key, ylabel in series:
+            y = [r.get(key) for r in rows]
+            fig, ax = plt.subplots(figsize=(7, 4)); ax.plot(x, y, "o-"); ax.set_xlabel("update"); ax.set_ylabel(ylabel); ax.grid(alpha=.25); fig.tight_layout(); fig.savefig(plots / f"{key}.png", dpi=140); plt.close(fig)
+        fp_eval, vq_eval = evals(fp), evals(vq)
+        if fp_eval or vq_eval:
+            fig, ax = plt.subplots(figsize=(7, 4))
+            if fp_eval: ax.plot(sorted(fp_eval), [fp_eval[k] for k in sorted(fp_eval)], "o-", label="FP32")
+            if vq_eval: ax.plot(sorted(vq_eval), [vq_eval[k] for k in sorted(vq_eval)], "o-", label="recursive VQ")
+            ax.set_xlabel("update"); ax.set_ylabel("validation NLL"); ax.grid(alpha=.25); ax.legend(); fig.tight_layout(); fig.savefig(plots / "validation_nll.png", dpi=140); plt.close(fig)
+    except Exception as exc:
+        (plots / "README.txt").write_text(f"Plot generation unavailable: {type(exc).__name__}: {exc}\n")
     (out / "summary.json").write_text(json.dumps({"status": "completed", "updates": [r["update"] for r in rows], "paired_snapshots": len(rows), "fp32_run": str(fp), "vq_run": str(vq), "validation_nll_fp32": evals(fp), "validation_nll_vq": evals(vq)}, indent=2))
     _write_csv(out / "landmark_metrics.csv", rows); _write_csv(out / "tensor_metrics.csv", tensor_rows)
     sizes = {"fp32_snapshot_bytes": {k: fp_files[k].stat().st_size for k in common}, "vq_snapshot_bytes": {k: vq_files[k].stat().st_size for k in common}, "fp32_total": sum(fp_files[k].stat().st_size for k in common), "vq_total": sum(vq_files[k].stat().st_size for k in common)}
