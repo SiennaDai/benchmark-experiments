@@ -111,7 +111,11 @@ class StructuralVQCodec:
 
     @torch.no_grad()
     def encode(self, momentum: torch.Tensor) -> StructuralVQState:
-        value = momentum.detach().float().cpu()
+        # Run the expensive SVD, scale estimation, and nearest-codeword search
+        # on the same device as the live optimizer state.  Only the serialized
+        # representation is copied to CPU after encoding; moving the input to
+        # CPU here would make a CUDA recursive run silently CPU-bound.
+        value = momentum.detach().float()
         if value.ndim != 2:
             raise ValueError("structural recursive state requires a 2-D matrix")
         u, s, vh = torch.linalg.svd(value, full_matrices=False)
@@ -123,8 +127,9 @@ class StructuralVQCodec:
         if singles.numel():
             raise ValueError("recursive matrices must contain an even number of values")
         scales = vector_scales(pairs, "p98", block_size=self.block_size)
-        indices = torch.empty((pairs.shape[0],), dtype=torch.long)
+        indices = torch.empty((pairs.shape[0],), dtype=torch.long, device=value.device)
         nvec = self.block_size // 2
+        codebook = self.codebook.to(device=value.device)
         for start in range(0, pairs.shape[0], nvec):
             end = min(start + nvec, pairs.shape[0])
             alpha = scales[start // nvec]
@@ -132,9 +137,9 @@ class StructuralVQCodec:
                 indices[start:end] = 0
             else:
                 normalized = (pairs[start:end] / alpha).clamp(-1, 1)
-                indices[start:end] = torch.cdist(normalized, self.codebook).argmin(dim=1)
-        return StructuralVQState(uk.to(torch.bfloat16), sk.to(torch.bfloat16),
-                                 vhk.to(torch.bfloat16), scales.float(),
+                indices[start:end] = torch.cdist(normalized, codebook).argmin(dim=1)
+        return StructuralVQState(uk.to(torch.bfloat16).cpu(), sk.to(torch.bfloat16).cpu(),
+                                 vhk.to(torch.bfloat16).cpu(), scales.float().cpu(),
                                  pack_indices(indices, 6), int(indices.numel()),
                                  tuple(value.shape), self.codebook_key)
 
@@ -184,24 +189,28 @@ class StructuralINT4Codec:
 
     @torch.no_grad()
     def encode(self, momentum: torch.Tensor) -> StructuralINT4State:
-        value = momentum.detach().float().cpu()
+        # Keep the heavy exact-SVD and residual quantization work on the live
+        # parameter device.  Only packed persistent state is copied to CPU.
+        value = momentum.detach().float()
         if value.ndim != 2:
             raise ValueError("structural recursive state requires a 2-D matrix")
         u, s, vh = torch.linalg.svd(value, full_matrices=False)
         k = min(self.rank, int(s.numel())); uk, sk, vhk = u[:, :k], s[:k], vh[:k]
         low = (uk * sk) @ vhk if k else torch.zeros_like(value)
         flat = (value - low).reshape(-1); scales = []; codes = torch.empty_like(flat, dtype=torch.long)
+        codebook = self.map.to(device=value.device)
         for start in range(0, flat.numel(), self.block_size):
             end = min(start + self.block_size, flat.numel()); block = flat[start:end]
             alpha = block.abs().amax(); scales.append(alpha)
             if alpha.item() == 0: codes[start:end] = 0
             else:
-                codes[start:end] = torch.cdist((block / alpha).reshape(-1, 1), self.map.reshape(-1, 1)).argmin(1)
+                codes[start:end] = torch.cdist((block / alpha).reshape(-1, 1), codebook.reshape(-1, 1)).argmin(1)
         raw = codes.to(torch.int64); packed = torch.zeros((math.ceil(raw.numel() / 2),), dtype=torch.uint8)
         packed[:raw.numel() // 2] = (raw[0::2][:packed.numel()] | (raw[1::2][:packed.numel()] << 4)).to(torch.uint8)
         if raw.numel() % 2: packed[-1] = raw[-1].to(torch.uint8)
-        return StructuralINT4State(uk.to(torch.bfloat16), sk.to(torch.bfloat16), vhk.to(torch.bfloat16),
-                                   torch.stack(scales).float(), packed, int(raw.numel()), tuple(value.shape))
+        return StructuralINT4State(uk.to(torch.bfloat16).cpu(), sk.to(torch.bfloat16).cpu(),
+                                   vhk.to(torch.bfloat16).cpu(), torch.stack(scales).float().cpu(),
+                                   packed.cpu(), int(raw.numel()), tuple(value.shape))
 
     @torch.no_grad()
     def decode(self, state: StructuralINT4State, *, device=None) -> torch.Tensor:
