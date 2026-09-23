@@ -221,8 +221,19 @@ def persistence_metadata(optimizer_name: str, simulation: str, *,
             "muon": {"quantized_state_names": selected, "states_left_fp32": [] if selected else ["muon_momentum"]},
             "auxiliary_adamw": {"quantized_state_names": [], "states_left_fp32": ["exp_avg", "exp_avg_sq"]},
         }
+    elif optimizer_name == "recursive_muon":
+        # The recursive optimizer owns a genuinely compressed Muon state.  It
+        # is not one of the numerical round-trip simulations above, but the
+        # run manifest still needs the same auditable persistence contract as
+        # the reference optimizers.
+        groups = {
+            "muon": {"quantized_state_names": ["compressed_momentum"], "states_left_fp32": []},
+            "auxiliary_adamw": {"quantized_state_names": [], "states_left_fp32": ["exp_avg", "exp_avg_sq"]},
+        }
     else:
-        return {"simulation": simulation, "state_groups": {"optimizer": {"quantized_state_names": [], "states_left_fp32": []}}}
+        return {"simulation": simulation,
+                "state_groups": {"optimizer": {"quantized_state_names": [], "states_left_fp32": []}},
+                "persistence_timing": "post_update; current FP32 state drives current update; persisted state affects next step"}
     metadata = {"simulation": simulation, "state_groups": groups,
                 "persistence_timing": "post_update; current FP32 state drives current update; persisted state affects next step"}
     if simulation in INT8_LINEAR_SIMULATIONS:
@@ -270,6 +281,10 @@ def persistence_metadata(optimizer_name: str, simulation: str, *,
     elif simulation == "bf16_roundtrip":
         metadata.update({"quantizer": "bf16_roundtrip", "persistent_storage_in_platform": "fp32_dequantized_simulation",
                          "actual_optimizer_memory_reduction": False})
+    elif optimizer_name == "recursive_muon":
+        metadata.update({"quantizer": "structural_recursive_codec",
+                         "persistent_storage_in_platform": "serialized_compressed_state",
+                         "actual_optimizer_memory_reduction": True})
     else:
         metadata.update({"quantizer": "none", "persistent_storage_in_platform": "fp32"})
     return metadata

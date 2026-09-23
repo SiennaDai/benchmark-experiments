@@ -8,6 +8,7 @@ from config.recipe import load_recipe
 from train_platform import learning_rate
 from scripts.check_recursive_gate import gate_snapshot
 from optim.muon_recursive import StructuralVQCodec, build_recursive_codecs
+from optim.state_simulation import persistence_metadata
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,3 +66,12 @@ def test_recursive_codec_has_no_fp32_momentum_shadow():
                                         "recursive_representation": "vq_int3",
                                         "recursive_codebook_path": "reports/muon_vector_int3_robustness/calibration_codebooks.pt",
                                         "recursive_codebook_key": "s1_k8_w64_t8_v1200"}, ROOT)
+
+
+def test_recursive_persistence_metadata_is_complete_for_run_manifest():
+    metadata = persistence_metadata("recursive_muon", "none")
+    assert metadata["persistence_timing"].startswith("post_update;")
+    assert metadata["state_groups"]["muon"] == {
+        "quantized_state_names": ["compressed_momentum"], "states_left_fp32": []}
+    assert metadata["quantizer"] == "structural_recursive_codec"
+    assert metadata["actual_optimizer_memory_reduction"] is True
