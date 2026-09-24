@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import sys
 
 import torch
 import pytest
@@ -15,6 +16,7 @@ from train_platform import parameter_groups
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
 def test_recursive_prototype_recipes_are_1024_update_paired_protocols():
@@ -47,6 +49,20 @@ def test_recursive_4096_suite_declares_the_two_structural_methods_and_gates():
     assert [run["run_id"] for run in suite["runs"]] == [
         "recursive_int4_4096_s0", "recursive_vq_int3_4096_s0"]
     assert suite["trajectory"]["landmark_updates"] == [128, 512, 1024, 2048, 4096]
+    assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []
+
+
+def test_error_feedback_oracle_recipes_keep_formal_schedule_and_only_vary_alpha():
+    paths = [ROOT / "recipes/mechanism_recursive_vq_int3_ef_a05_4096_s1.json",
+             ROOT / "recipes/mechanism_recursive_vq_int3_ef_a10_4096_s1.json"]
+    configs = [load_recipe(path) for path in paths]
+    assert [cfg["optimizer"]["recursive_error_feedback_alpha"] for cfg in configs] == [.5, 1.0]
+    assert all(cfg["derived"]["total_updates"] == cfg["derived"]["schedule_total_updates"] == 4096 for cfg in configs)
+    assert all(cfg["experiment"]["seed"] == 1 and cfg["experiment"]["data_seed"] == 1337 and
+               cfg["experiment"]["algorithm_seed"] == 2026 for cfg in configs)
+    assert all(cfg["optimizer"]["recursive_codebook_key"] == "s0_k8_w64_t8_v1200" for cfg in configs)
+    suite = load_suite(ROOT / "benchmarks/recursive_muon_error_feedback_oracle_512_s1.json")
+    assert suite["trajectory"]["landmark_updates"] == [1, 8, 32, 128, 512]
     assert scientific_differences(configs, [run["run_id"] for run in suite["runs"]], suite["vary"]) == []
 
 

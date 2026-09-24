@@ -1,9 +1,10 @@
 """Recursive structural-state Muon prototype.
 
 This module is intentionally separate from :mod:`muon_reference`.  It is an
-offline/experimental optimizer whose Muon momentum is *only* retained as a
-serialized structural representation between calls to ``step``.  There is no
-FP32 momentum shadow.  The implementation uses an exact truncated SVD for the
+offline/experimental optimizer whose Muon momentum is retained as a serialized
+structural representation between calls to ``step``. An opt-in causal oracle
+may additionally retain only the FP32 persistence residual; it never retains
+a parallel FP32 momentum shadow. The implementation uses an exact truncated SVD for the
 structure extraction (and therefore labels itself an oracle-structure
 prototype); this keeps the persistence semantics correct while a practical
 warm-start extractor is evaluated separately.
@@ -361,21 +362,30 @@ def build_recursive_codecs(model, cfg: dict, root: Path) -> dict[int, object]:
 class RecursiveMuon(torch.optim.Optimizer):
     """Muon whose selected 2-D momentum states recursively persist via codec.
 
-    This is deliberately an experimental optimizer and is not wired into the
-    production adapter.  Non-Muon parameters use ordinary FP32 AdamW moments.
+    This is deliberately an experimental optimizer. Non-Muon parameters use
+    ordinary FP32 AdamW moments. ``recursive_error_feedback_alpha`` controls an
+    optional persistent FP32 residual of the compressed Muon state, not an
+    uncompressed momentum copy.
     """
 
     def __init__(self, params, codecs: dict[int, StructuralVQCodec], *, lr=1e-3,
                  betas=(.9, .999), eps=1e-8, weight_decay=.1, muon_momentum=.95,
                  muon_nesterov=True, muon_ns_steps=5,
-                 muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7):
+                 muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7,
+                 recursive_error_feedback_alpha=0.0):
+        if isinstance(recursive_error_feedback_alpha, bool):
+            raise ValueError("recursive_error_feedback_alpha must be finite and nonnegative")
+        alpha = float(recursive_error_feedback_alpha)
+        if not math.isfinite(alpha) or alpha < 0:
+            raise ValueError("recursive_error_feedback_alpha must be finite and nonnegative")
         self.codecs = codecs
+        self.recursive_error_feedback_alpha = alpha
         self._mechanism_observer = None
         self._mechanism_update = None
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
                         muon_momentum=muon_momentum, muon_nesterov=muon_nesterov,
                         muon_ns_steps=muon_ns_steps, muon_ns_coefficients=tuple(muon_ns_coefficients),
-                        muon_eps=muon_eps)
+                        muon_eps=muon_eps, recursive_error_feedback_alpha=alpha)
         super().__init__(params, defaults)
 
     def set_mechanism_observer(self, observer):
@@ -432,6 +442,9 @@ class RecursiveMuon(torch.optim.Optimizer):
             encoded = state.get("compressed_momentum")
             if isinstance(encoded, (StructuralVQState, StructuralINT4State)):
                 state["compressed_momentum"] = encoded.to(parameter.device)
+            error = state.get("momentum_error")
+            if torch.is_tensor(error):
+                state["momentum_error"] = error.to(device=parameter.device, dtype=torch.float32)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -451,20 +464,32 @@ class RecursiveMuon(torch.optim.Optimizer):
                         raise KeyError("missing recursive codec for Muon parameter")
                     compressed = state.get("compressed_momentum")
                     previous_decoded = torch.zeros_like(p, dtype=torch.float32) if compressed is None else codec.decode(compressed, device=p.device)
-                    momentum = previous_decoded
-                    momentum = momentum.mul(group["muon_momentum"]).add(grad)
+                    mu = group["muon_momentum"]
+                    previous_error = state.get("momentum_error")
+                    if previous_error is None:
+                        previous_error = torch.zeros_like(p, dtype=torch.float32)
+                    momentum = previous_decoded.mul(mu).add(grad)
+                    alpha = group.get("recursive_error_feedback_alpha", 0.0)
+                    if alpha:
+                        # Restore a controlled fraction of the previous
+                        # persistence residual: mu * (decoded + alpha * error).
+                        momentum.add_(previous_error, alpha=alpha * mu)
                     direction = grad.add(momentum, alpha=group["muon_momentum"]) if group["muon_nesterov"] else momentum
                     update = zeropower_newton_schulz(direction, group["muon_ns_steps"], group["muon_ns_coefficients"], group["muon_eps"])
                     updated = p.float().mul(1 - group["lr"] * group["weight_decay"]).add(update, alpha=-group["lr"])
                     encoded = codec.encode(momentum)
-                    persisted_decoded = codec.decode(encoded, device=p.device) if self._mechanism_observer is not None else None
+                    persisted_decoded = codec.decode(encoded, device=p.device) if (alpha or self._mechanism_observer is not None) else None
+                    current_error = momentum - persisted_decoded if alpha else None
                     if self._mechanism_observer is not None:
                         self._mechanism_observer(parameter=p, gradient=grad, momentum_prev=previous_decoded,
                             momentum_candidate=momentum, momentum_persisted_decoded=persisted_decoded,
                             direction=direction, updated=updated, group=group, update=self._mechanism_update,
-                            compressed_state=encoded)
+                            compressed_state=encoded, momentum_error_prev=previous_error,
+                            momentum_error=current_error, error_feedback_alpha=alpha)
                     p.copy_(updated.to(p.dtype))
                     state["compressed_momentum"] = encoded
+                    if alpha:
+                        state["momentum_error"] = current_error
                 else:
                     step = state.get("step", 0) + 1; state["step"] = step
                     beta1, beta2 = group["betas"]
@@ -481,9 +506,11 @@ class RecursiveMuon(torch.optim.Optimizer):
         for p, state in self.state.items():
             encoded = state.get("compressed_momentum")
             if encoded is not None:
+                error = state.get("momentum_error")
                 rows.append({"parameter_id": id(p), "shape": list(encoded.shape),
                              "storage_bits": self.codecs[id(p)].storage_bits(encoded),
-                             "has_fp32_momentum": False})
+                             "error_buffer_bits": int(error.numel() * error.element_size() * 8) if torch.is_tensor(error) else 0,
+                             "has_fp32_momentum": False, "has_fp32_error_buffer": torch.is_tensor(error)})
             else:
                 # Auxiliary AdamW state is intentionally unchanged and remains
                 # FP32; include it in accounting rather than silently dropping
@@ -500,7 +527,13 @@ class RecursiveMuon(torch.optim.Optimizer):
                 identity = ("vq", getattr(codec, "codebook_key", "default"))
                 if identity not in codebook_ids:
                     codebook_ids.add(identity); codebook_bits += int(codec.codebook.numel() * 32)
-        persistent_bits = sum(r["storage_bits"] for r in rows) + codebook_bits
+        compressed_bits = sum(r["storage_bits"] for r in rows)
+        muon_rows = [r for r in rows if "key" not in r]
+        compressed_muon_bits = sum(r["storage_bits"] for r in muon_rows)
+        muon_scalar_count = sum(math.prod(r["shape"]) for r in muon_rows)
+        error_buffer_bits = sum(r.get("error_buffer_bits", 0) for r in rows)
+        persistent_bits = compressed_bits + error_buffer_bits + codebook_bits
+        muon_total_bits = compressed_muon_bits + error_buffer_bits + codebook_bits
         # Keep the common run-summary contract in addition to the recursive
         # storage-specific fields.  The summary writer records bytes, while
         # this optimizer also exposes the exact serialized bit count.
@@ -509,5 +542,12 @@ class RecursiveMuon(torch.optim.Optimizer):
                 "unique_storage_bytes": persistent_bytes,
                 "tensors": rows, "persistent_bits": persistent_bits,
                 "codebook_bits": codebook_bits,
+                "compressed_state_bits": compressed_bits, "error_buffer_bits": error_buffer_bits,
+                "compressed_muon_state_bits": compressed_muon_bits,
+                "muon_scalar_count": muon_scalar_count,
+                "muon_total_state_bits": muon_total_bits,
+                "error_buffer_bytes": (error_buffer_bits + 7) // 8,
+                "muon_effective_bits_per_value": muon_total_bits / muon_scalar_count if muon_scalar_count else 0.0,
+                "error_feedback_alpha": self.recursive_error_feedback_alpha,
                 "compressed_muon_tensor_count": sum("key" not in r for r in rows),
                 "structure_mode": "exact_svd_oracle"}

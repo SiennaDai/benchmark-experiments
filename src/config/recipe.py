@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates", "muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "recursive_error_feedback_alpha", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates", "muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -85,6 +86,8 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         raise RecipeError(f"train.target_tokens must be divisible by {tokens_per_update}")
     if o["name"] not in {"torch_adamw", "reference_adamw", "reference_muon", "recursive_muon", "bnb_adamw32", "bnb_adamw8"}:
         raise RecipeError("unsupported optimizer.name")
+    if "recursive_error_feedback_alpha" in o and o["name"] != "recursive_muon":
+        raise RecipeError("recursive_error_feedback_alpha is only valid for recursive_muon")
     simulations = {"none", "bf16_roundtrip", "int8_linear_first_moment", "int8_linear_second_moment", "int8_linear_all_moments", "int8_linear_momentum", "int4_linear_momentum", "int8_dynamic_all_moments", "int8_dynamic_second_moment", "int4_dynamic_all_moments", "int4_dynamic_momentum"}
     if o["state_simulation"] not in simulations:
         raise RecipeError("unsupported optimizer.state_simulation")
@@ -117,6 +120,11 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
         if not isinstance(coefficients, list) or len(coefficients) != 3 or not all(isinstance(x, (int, float)) for x in coefficients):
             raise RecipeError("optimizer.muon_ns_coefficients must be a three-element numeric array")
     if o["name"] == "recursive_muon":
+        alpha = o.get("recursive_error_feedback_alpha", 0.0)
+        if isinstance(alpha, bool) or not isinstance(alpha, (int, float)) or not math.isfinite(alpha) or alpha < 0:
+            raise RecipeError("optimizer.recursive_error_feedback_alpha must be finite and nonnegative")
+        if alpha > 0 and o.get("recursive_representation", "vq_int3") != "vq_int3":
+            raise RecipeError("recursive error feedback oracle is currently restricted to vq_int3")
         if o.get("state_simulation", "none") != "none":
             raise RecipeError("recursive_muon owns its compressed state; state_simulation must be none")
         if o.get("recursive_rank", 8) <= 0:

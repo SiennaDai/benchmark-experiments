@@ -1,0 +1,17 @@
+{
+  "name": "recursive_muon_error_feedback_oracle_512_s1",
+  "runs": [
+    {"run_id": "mechanism_recursive_vq_int3_ef_a05_4096_s1", "recipe": "../recipes/mechanism_recursive_vq_int3_ef_a05_4096_s1.json"},
+    {"run_id": "mechanism_recursive_vq_int3_ef_a10_4096_s1", "recipe": "../recipes/mechanism_recursive_vq_int3_ef_a10_4096_s1.json"}
+  ],
+  "vary": ["optimizer.recursive_error_feedback_alpha"],
+  "trajectory": {
+    "group_by": ["experiment.seed"],
+    "treatment_field": "optimizer.recursive_error_feedback_alpha",
+    "control_value": 0.5,
+    "treatment_values": [1.0],
+    "landmark_updates": [1, 8, 32, 128, 512]
+  },
+  "runtime": {"device": "cuda:0", "max_wall_seconds": 39600},
+  "report": {"output": "reports/recursive_muon_error_feedback_oracle_s1_512"}
+}

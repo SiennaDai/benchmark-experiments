@@ -55,7 +55,9 @@ class MuonMechanismObserver:
 
     @torch.no_grad()
     def observe(self, *, parameter, gradient, momentum_prev, momentum_candidate,
-                momentum_persisted_decoded, direction, updated, group, **kwargs):
+                momentum_persisted_decoded, direction, updated, group,
+                momentum_error_prev=None, momentum_error=None,
+                error_feedback_alpha=0.0, **kwargs):
         if not self.collecting:
             # Still retain the previous unquantized candidate for the next
             # update's local counterfactual; this is observer-only transient
@@ -71,6 +73,15 @@ class MuonMechanismObserver:
         persisted = momentum_persisted_decoded.detach().float()
         grad = gradient.detach().float()
         q = persisted - candidate
+        error_prev = (torch.zeros_like(candidate) if momentum_error_prev is None
+                      else momentum_error_prev.detach().float())
+        current_error = (torch.zeros_like(candidate) if momentum_error is None
+                         else momentum_error.detach().float())
+        mu = float(group.get("muon_momentum", self.metadata.get("muon_momentum", .95)))
+        injected = error_prev * (float(error_feedback_alpha) * mu)
+        reconstructed_prev = pre + error_prev
+        prior_candidate = (self._previous_candidates.get(pid) if pid in self._previous_candidates
+                           else torch.zeros_like(candidate))
         self._items.append({
             "parameter_id": self.parameter_names.get(pid, f"parameter:{pid}"),
             "name": self.parameter_names.get(pid, "<unknown>"),
@@ -84,6 +95,17 @@ class MuonMechanismObserver:
             "candidate_sq": float(candidate.square().sum().item()),
             "persisted_sq": float(persisted.square().sum().item()),
             "persisted_dot": float((persisted * candidate).sum().item()),
+            "error_prev_sq": float(error_prev.square().sum().item()),
+            "error_current_sq": float(current_error.square().sum().item()),
+            "mu_error_prev_sq": float((mu * error_prev).square().sum().item()),
+            "injected_sq": float(injected.square().sum().item()),
+            "injected_grad_dot": float((injected * grad).sum().item()),
+            "gradient_sq": float(grad.square().sum().item()),
+            "reconstructed_prev_sq": float(reconstructed_prev.square().sum().item()),
+            "prior_candidate_sq": float(prior_candidate.square().sum().item()),
+            "reconstructed_prior_dot": float((reconstructed_prev * prior_candidate).sum().item()),
+            "reconstructed_prior_diff_sq": float((reconstructed_prev - prior_candidate).square().sum().item()),
+            "reconstructed_prior_max_abs": float((reconstructed_prev - prior_candidate).abs().max().item()) if candidate.numel() else 0.0,
         })
         self._previous_candidates[pid] = candidate.clone()
 
@@ -97,6 +119,16 @@ class MuonMechanismObserver:
             return
         q2 = sum(x["q_sq"] for x in items); c2 = sum(x["candidate_sq"] for x in items)
         p2 = sum(x["persisted_sq"] for x in items); pdot = sum(x["persisted_dot"] for x in items)
+        e_prev2 = sum(x["error_prev_sq"] for x in items)
+        e2 = sum(x["error_current_sq"] for x in items)
+        mu_e2 = sum(x["mu_error_prev_sq"] for x in items)
+        injected2 = sum(x["injected_sq"] for x in items)
+        injected_dot = sum(x["injected_grad_dot"] for x in items)
+        gradient2 = sum(x["gradient_sq"] for x in items)
+        rec2 = sum(x["reconstructed_prev_sq"] for x in items)
+        prior2 = sum(x["prior_candidate_sq"] for x in items)
+        recdot = sum(x["reconstructed_prior_dot"] for x in items)
+        recdiff2 = sum(x["reconstructed_prior_diff_sq"] for x in items)
         row = {
             "schema_version": self.schema_version, "update": int(update),
             "processed_target_tokens": int(processed_target_tokens),
@@ -106,6 +138,15 @@ class MuonMechanismObserver:
             "persistence_quantization_relative_l2": math.sqrt(q2 / max(c2, 1e-30)),
             "persistence_quantization_cosine": pdot / max(math.sqrt(p2 * c2), 1e-30) if p2 and c2 else 1.0,
             "persistence_norm_ratio": math.sqrt(p2 / max(c2, 1e-30)),
+            "error_feedback_alpha": float(self.metadata.get("error_feedback_alpha", 0.0)),
+            "error_buffer_norm_ratio": math.sqrt(e2 / max(c2, 1e-30)),
+            "previous_error_buffer_norm_ratio": math.sqrt(e_prev2 / max(c2, 1e-30)),
+            "mu_error_prev_norm_ratio": math.sqrt(mu_e2 / max(c2, 1e-30)),
+            "injected_correction_norm_ratio": math.sqrt(injected2 / max(c2, 1e-30)),
+            "injected_correction_gradient_cosine": injected_dot / max(math.sqrt(injected2 * gradient2), 1e-30) if injected2 else 1.0,
+            "previous_candidate_reconstruction_cosine": recdot / max(math.sqrt(rec2 * prior2), 1e-30) if rec2 and prior2 else 1.0,
+            "previous_candidate_reconstruction_relative_l2": math.sqrt(recdiff2 / max(prior2, 1e-30)),
+            "previous_candidate_reconstruction_max_abs": max(x["reconstructed_prior_max_abs"] for x in items),
             "raw_snapshot": self._update in self.raw_updates,
         }
         # At raw landmarks calculate the true one-step local K5 effect while
@@ -113,10 +154,11 @@ class MuonMechanismObserver:
         if self._update in self.raw_updates:
             local_dot = local_a2 = local_b2 = local_d2 = 0.0
             for x in items:
-                g = x["gradient"]; prev = x["momentum_prev_decoded"]; prev_c = x["momentum_prev_candidate"]
+                g = x["gradient"]; prev = x["momentum_prev_decoded"]
                 actual = x["momentum_candidate"]; mu = float(self.metadata["muon_momentum"])
                 d_actual = g + mu * actual
-                d_no_prev = g + mu * (mu * prev_c + g)
+                m_no_prev_error = mu * prev + g
+                d_no_prev = g + mu * m_no_prev_error
                 oa = zeropower_newton_schulz(d_actual, self.metadata["muon_ns_steps"], self.metadata["muon_ns_coefficients"], self.metadata["muon_eps"])
                 ob = zeropower_newton_schulz(d_no_prev, self.metadata["muon_ns_steps"], self.metadata["muon_ns_coefficients"], self.metadata["muon_eps"])
                 local_dot += float((oa * ob).sum()); local_a2 += float(oa.square().sum()); local_b2 += float(ob.square().sum()); local_d2 += float((oa-ob).square().sum())
@@ -124,6 +166,9 @@ class MuonMechanismObserver:
                         "local_one_step_k5_relative_l2": math.sqrt(local_d2 / max(local_a2, 1e-30))})
             raw_fields = ["gradient", "momentum_prev_decoded", "momentum_prev_candidate", "momentum_candidate"]
             if self.optimizer_name == "recursive_muon":
+                # The error buffer is exactly candidate - decoded persistence;
+                # the raw snapshot already stores the two operands, avoiding
+                # another full FP32 copy per tensor and landmark.
                 raw_fields.append("momentum_persisted_decoded")
             payload = {"format": "recursive_muon_mechanism_snapshot", "version": 1,
                        "metadata": {**self.metadata, "update": int(update), "processed_target_tokens": int(processed_target_tokens),
