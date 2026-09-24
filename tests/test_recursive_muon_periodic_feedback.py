@@ -241,3 +241,5 @@ def test_periodic_analysis_smoke_pools_k5_and_writes_required_outputs(tmp_path):
     for filename in ("comparison.md", "summary.json", "landmark_metrics.csv",
                      "correction_event_metrics.csv", "storage_breakdown.csv", "provenance.json"):
         assert (out / filename).is_file()
+    event_header = (out / "correction_event_metrics.csv").read_text().splitlines()[0]
+    assert "local_no_injection_vs_injected_k5_cosine" in event_header

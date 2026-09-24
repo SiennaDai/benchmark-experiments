@@ -226,6 +226,11 @@ def analyze(runs: dict[str, Path], output: Path):
                     "injected_correction_norm_ratio": event.get("periodic_injected_correction_norm_ratio"),
                     "accumulator_norm_ratio_after_update": event.get("periodic_accumulator_next_norm_ratio"),
                     "instantaneous_persistence_error_norm_ratio": event.get("error_buffer_norm_ratio"),
+                    # Available only at the configured raw landmarks. This is
+                    # the same-step local effect of injecting A_t, holding the
+                    # current gradient fixed; it is not FP32 trajectory fidelity.
+                    "local_no_injection_vs_injected_k5_cosine": event.get("local_one_step_k5_cosine"),
+                    "local_no_injection_vs_injected_k5_relative_l2": event.get("local_one_step_k5_relative_l2"),
                     "train_nll": event.get("train_nll")})
     _csv(output / "correction_event_metrics.csv", correction_rows)
 
