@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import torch
 
 from analyze_recursive_muon_mechanism import _k5, _load
+from config.recipe import load_recipe
 
 ROOT = Path(__file__).resolve().parents[1]
 LANDMARKS = (1, 8, 32, 128, 512)
@@ -28,6 +29,28 @@ VQ_FIELDS = {"recursive_rank": 8, "recursive_block_size": 2048,
 
 def _read_json(path: Path):
     return json.loads(path.read_text())
+
+
+def _run_config(run: Path, summary: dict):
+    """Load resolved config or recover a baseline from its canonical recipe.
+
+    Reusable baseline light archives may omit ``resolved_config.json``. Their
+    summary retains recipe name/fingerprint, so a checked-in recipe is safe
+    only if its fingerprint exactly matches the archived run.
+    """
+    path = run / "resolved_config.json"
+    if path.is_file():
+        return _read_json(path)
+    recipe_name = summary.get("recipe_name")
+    if not recipe_name:
+        raise FileNotFoundError(f"{run}: missing resolved_config.json and summary recipe_name")
+    recipe_path = ROOT / "recipes" / f"{recipe_name}.json"
+    if not recipe_path.is_file():
+        raise FileNotFoundError(f"{run}: missing resolved_config.json and canonical recipe {recipe_path}")
+    config = load_recipe(recipe_path)
+    if config.get("fingerprint") != summary.get("recipe_fingerprint"):
+        raise ValueError(f"{run}: canonical recipe fingerprint does not match run summary")
+    return config
 
 
 def _events(run: Path, kind: str):
@@ -62,7 +85,7 @@ def _validate(runs: dict[str, Path]):
         if not run.is_dir():
             raise FileNotFoundError(f"run directory not found for {method}: {run}")
         summaries[method] = _read_json(run / "summary.json")
-        configs[method] = _read_json(run / "resolved_config.json")
+        configs[method] = _run_config(run, summaries[method])
         snapshots[method] = _snapshot_paths(run)
         train_events[method] = _events(run, "train")
         eval_events[method] = _events(run, "eval")

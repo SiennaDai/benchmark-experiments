@@ -17,7 +17,7 @@ from optim.muon_recursive import (RecursiveMuon, StructuralVQCodec,
 from optim.muon_reference import ReferenceMuon  # noqa: E402
 from reporting import scientific_differences  # noqa: E402
 from benchmark_suite import load_suite  # noqa: E402
-from analyze_recursive_muon_periodic_feedback import analyze  # noqa: E402
+from analyze_recursive_muon_periodic_feedback import analyze, _run_config  # noqa: E402
 
 
 def _codec():
@@ -243,3 +243,14 @@ def test_periodic_analysis_smoke_pools_k5_and_writes_required_outputs(tmp_path):
         assert (out / filename).is_file()
     event_header = (out / "correction_event_metrics.csv").read_text().splitlines()[0]
     assert "local_no_injection_vs_injected_k5_cosine" in event_header
+
+
+def test_analysis_recovers_omitted_baseline_config_only_on_recipe_fingerprint_match(tmp_path):
+    recipe = load_recipe(ROOT / "recipes/mechanism_fp32_muon_4096_s1.json")
+    summary = {"recipe_name": recipe["experiment"]["name"],
+               "recipe_fingerprint": recipe["fingerprint"]}
+    config = _run_config(tmp_path, summary)
+    assert config["fingerprint"] == summary["recipe_fingerprint"]
+    summary["recipe_fingerprint"] = "wrong-fingerprint"
+    with pytest.raises(ValueError, match="fingerprint"):
+        _run_config(tmp_path, summary)
