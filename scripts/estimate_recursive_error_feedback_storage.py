@@ -38,16 +38,21 @@ def estimate(cfg: dict) -> dict:
                      "vq_payload_bytes": factors + scales + indices})
     scalar_count = sum(row["numel"] for row in tensors)
     vq_payload = sum(row["vq_payload_bytes"] for row in rows) + 64 * 2 * 4
-    error_bytes = scalar_count * 4
+    mode = cfg["optimizer"].get("recursive_error_feedback_mode", "fractional" if cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0) > 0 else "none")
+    error_bytes = scalar_count * 4 if mode == "fractional" else 0
+    periodic_accumulator_bytes = scalar_count * 4 if mode == "periodic" else 0
+    feedback_bytes = error_bytes + periodic_accumulator_bytes
     return {"recipe": cfg["experiment"]["name"], "seed": cfg["experiment"]["seed"],
             "muon_tensor_count": len(rows), "muon_scalar_count": scalar_count,
             "fp32_muon_state_bytes": scalar_count * 4,
             "vq_payload_bytes_including_shared_codebook": vq_payload,
             "vq_effective_bits_per_value": 8 * vq_payload / scalar_count,
             "fp32_error_buffer_bytes": error_bytes,
-            "error_buffer_bits_per_value": 32.0,
-            "oracle_total_bytes": vq_payload + error_bytes,
-            "oracle_total_effective_bits_per_value": 8 * (vq_payload + error_bytes) / scalar_count,
+            "periodic_accumulator_bytes": periodic_accumulator_bytes,
+            "periodic_interval": cfg["optimizer"].get("recursive_error_feedback_interval"),
+            "error_buffer_bits_per_value": 8 * feedback_bytes / scalar_count,
+            "oracle_total_bytes": vq_payload + feedback_bytes,
+            "oracle_total_effective_bits_per_value": 8 * (vq_payload + feedback_bytes) / scalar_count,
             "serialization_note": "payload estimate excludes checkpoint/container overhead; runtime summary reports actual logical payload",
             "tensors": rows}
 

@@ -1,0 +1,18 @@
+{
+  "name": "recursive_muon_periodic_feedback_512_s1_v1",
+  "runs": [
+    {"run_id": "mechanism_recursive_vq_int3_ef_periodic_k4_4096_s1", "recipe": "../recipes/mechanism_recursive_vq_int3_ef_periodic_k4_4096_s1.json"},
+    {"run_id": "mechanism_recursive_vq_int3_ef_periodic_k16_4096_s1", "recipe": "../recipes/mechanism_recursive_vq_int3_ef_periodic_k16_4096_s1.json"},
+    {"run_id": "mechanism_recursive_vq_int3_ef_periodic_k64_4096_s1", "recipe": "../recipes/mechanism_recursive_vq_int3_ef_periodic_k64_4096_s1.json"}
+  ],
+  "vary": ["optimizer.recursive_error_feedback_interval"],
+  "trajectory": {
+    "group_by": ["experiment.seed"],
+    "treatment_field": "optimizer.recursive_error_feedback_interval",
+    "control_value": 4,
+    "treatment_values": [16, 64],
+    "landmark_updates": [1, 8, 32, 128, 512]
+  },
+  "runtime": {"device": "cuda:0", "max_wall_seconds": null},
+  "report": {"output": "reports/recursive_muon_periodic_feedback_s1_512"}
+}

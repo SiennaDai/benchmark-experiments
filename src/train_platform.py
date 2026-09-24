@@ -203,12 +203,21 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
             quantization_granularity=cfg["optimizer"].get("state_quantization_granularity", "per_state_tensor"),
             quantization_block_size=cfg["optimizer"].get("state_quantization_block_size", 2048))
         error_feedback_alpha = cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0)
+        error_feedback_mode = cfg["optimizer"].get("recursive_error_feedback_mode", "fractional" if error_feedback_alpha > 0 else "none")
         if error_feedback_alpha > 0:
             state_policy["state_groups"]["muon"]["states_left_fp32"] = ["momentum_error"]
             state_policy["persistent_storage_in_platform"] = "compressed_state_plus_fp32_error_residual"
             state_policy["actual_optimizer_memory_reduction"] = False
             state_policy["recursive_error_feedback"] = {"alpha": error_feedback_alpha,
                 "buffer": "single FP32 persistence residual; no FP32 momentum shadow"}
+        elif error_feedback_mode == "periodic":
+            interval = cfg["optimizer"]["recursive_error_feedback_interval"]
+            state_policy["state_groups"]["muon"]["states_left_fp32"] = ["momentum_error_accumulator"]
+            state_policy["persistent_storage_in_platform"] = "compressed_state_plus_fp32_periodic_error_accumulator"
+            state_policy["actual_optimizer_memory_reduction"] = False
+            state_policy["recursive_error_feedback"] = {"mode": "periodic", "interval": interval,
+                "buffer": "single FP32 decayed unpaid-residual accumulator; no FP32 momentum shadow",
+                "weighting": "A_next=mu*A+mu*e without correction; A_next=mu*e after correction"}
         grouping = {"muon_parameters": sum(r["numel"] for r in records if r["group"] == "muon"), "auxiliary_adamw_parameters": sum(r["numel"] for r in records if r["group"] == "auxiliary_adamw"), "muon_tensor_count": sum(r["group"] == "muon" for r in records), "auxiliary_adamw_tensor_count": sum(r["group"] == "auxiliary_adamw" for r in records)}
         dump_resolved(cfg, run_dir/"resolved_config.json"); write_json(run_dir/"environment.json", environment_snapshot()); write_json(run_dir/"source.json", source_snapshot(root)); write_json(run_dir/"data_manifest.json", {k:v for k,v in manifest.items() if k != "_path"}); write_json(run_dir/"parameters.json", records); write_json(run_dir/"precision.json", {**cfg["precision"], "to_device": to_device, "device": str(device), "optimizer_state_simulation": cfg["optimizer"]["state_simulation"], "state_persistence": state_policy, "roundtrip_state_policy": state_policy["persistence_timing"], "parameter_grouping": grouping, "state_diagnostics": {"enabled": bool(cfg["logging"].get("state_diagnostics", False)), "stream": "state_diagnostics.jsonl", "timing": "detached read-only observation after FP32 moment/current update and after persistence simulation", "percentile_method": "bounded deterministic per-tensor evenly-spaced samples; exact counts/extrema/L2 reductions"}})
     writer = EventWriter(run_dir/"metrics.jsonl", run_id, segment)
@@ -283,6 +292,8 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
                       "muon_ns_coefficients": cfg["optimizer"].get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315]),
                       "muon_eps": cfg["optimizer"].get("muon_eps", 1e-7),
                       "error_feedback_alpha": cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0),
+                      "error_feedback_mode": cfg["optimizer"].get("recursive_error_feedback_mode", "fractional" if cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0) > 0 else "none"),
+                      "error_feedback_interval": cfg["optimizer"].get("recursive_error_feedback_interval"),
                       "recursive_codebook_key": cfg["optimizer"].get("recursive_codebook_key"),
                       "raw_updates": list(map(int, mechanism_raw_updates)),
                       "scalar_updates": list(map(int, mechanism_scalar_updates))})
@@ -290,7 +301,9 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
         write_json(run_dir/"mechanism_manifest.json", {"raw_updates": mechanism_raw_updates, "scalar_updates": mechanism_scalar_updates,
                     "snapshot_bytes_are_fp32_cpu": True, "observer_only": True, "optimizer_name": cfg["optimizer"]["name"],
                     "error_feedback_alpha": cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0),
-                    "error_buffer_snapshot_policy": "derive exact e_t from momentum_candidate - momentum_persisted_decoded; no duplicate full-size error tensor"})
+                    "error_feedback_mode": cfg["optimizer"].get("recursive_error_feedback_mode", "fractional" if cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0) > 0 else "none"),
+                    "error_feedback_interval": cfg["optimizer"].get("recursive_error_feedback_interval"),
+                    "error_buffer_snapshot_policy": "derive exact e_t from momentum_candidate - momentum_persisted_decoded; no duplicate full-size error tensor; accumulator scalar diagnostics only"})
     started = time.monotonic(); status, reason = "completed", None
     divergence = None; last_finite_train_metric = None; active_update = completed; attempted_processed = processed
     print(f"[run] {run_id} | {cfg['optimizer']['name']} | {device} | {cfg['precision']['compute']} | {cfg['derived']['total_updates']} updates | schedule horizon {cfg['derived']['schedule_total_updates']} | {cfg['train']['target_tokens']} tokens")
@@ -319,7 +332,8 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
             if fidelity_observer is not None: fidelity_observer.begin_update(update)
             if mechanism_observer is not None:
                 mechanism_observer.begin_update(update)
-                optimizer.set_mechanism_update(update)
+            if hasattr(optimizer, "set_training_update"):
+                optimizer.set_training_update(update)
             optimizer.step(); optimizer.zero_grad(set_to_none=True)
             # The collector observes detached values created in ReferenceAdamW:
             # v before persistence and its next-step persisted counterpart.

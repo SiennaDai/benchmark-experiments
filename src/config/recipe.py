@@ -28,7 +28,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "recursive_error_feedback_alpha", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates", "muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "recursive_error_feedback_alpha", "recursive_error_feedback_mode", "recursive_error_feedback_interval", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates", "muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -125,6 +125,22 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
             raise RecipeError("optimizer.recursive_error_feedback_alpha must be finite and nonnegative")
         if alpha > 0 and o.get("recursive_representation", "vq_int3") != "vq_int3":
             raise RecipeError("recursive error feedback oracle is currently restricted to vq_int3")
+        feedback_mode = o.get("recursive_error_feedback_mode", "fractional" if alpha > 0 else "none")
+        if feedback_mode not in {"none", "fractional", "periodic"}:
+            raise RecipeError("optimizer.recursive_error_feedback_mode must be none, fractional, or periodic")
+        interval = o.get("recursive_error_feedback_interval")
+        if feedback_mode == "periodic":
+            _require_type(interval, int, "optimizer.recursive_error_feedback_interval")
+            if interval <= 0:
+                raise RecipeError("optimizer.recursive_error_feedback_interval must be positive")
+            if alpha != 0:
+                raise RecipeError("periodic error feedback requires recursive_error_feedback_alpha=0")
+        elif interval is not None:
+            raise RecipeError("recursive_error_feedback_interval is only valid in periodic mode")
+        if feedback_mode == "none" and alpha != 0:
+            raise RecipeError("recursive_error_feedback_mode=none requires alpha=0")
+        if feedback_mode == "fractional" and alpha <= 0:
+            raise RecipeError("fractional error-feedback mode requires alpha>0")
         if o.get("state_simulation", "none") != "none":
             raise RecipeError("recursive_muon owns its compressed state; state_simulation must be none")
         if o.get("recursive_rank", 8) <= 0:

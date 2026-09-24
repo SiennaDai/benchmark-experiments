@@ -31,7 +31,9 @@ def make_optimizer(name, groups, cfg, *, codecs=None):
             muon_nesterov=cfg.get("muon_nesterov", True), muon_ns_steps=cfg.get("muon_ns_steps", 5),
             muon_ns_coefficients=cfg.get("muon_ns_coefficients", [3.4445, -4.7750, 2.0315]),
             muon_eps=cfg.get("muon_eps", 1e-7),
-            recursive_error_feedback_alpha=cfg.get("recursive_error_feedback_alpha", 0.0))
+            recursive_error_feedback_alpha=cfg.get("recursive_error_feedback_alpha", 0.0),
+            recursive_error_feedback_mode=cfg.get("recursive_error_feedback_mode"),
+            recursive_error_feedback_interval=cfg.get("recursive_error_feedback_interval"))
     if name in {"bnb_adamw32", "bnb_adamw8"}:
         if not torch.cuda.is_available():
             raise RuntimeError(f"{name} requires a supported CUDA device")

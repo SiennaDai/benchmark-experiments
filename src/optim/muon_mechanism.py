@@ -51,13 +51,20 @@ class MuonMechanismObserver:
 
     @property
     def collecting(self) -> bool:
-        return self._update in self.scalar_updates
+        interval = self.metadata.get("error_feedback_interval")
+        periodic_event = (self.metadata.get("error_feedback_mode") == "periodic" and
+                          isinstance(interval, int) and interval > 0 and
+                          self._update is not None and self._update % interval == 0)
+        return self._update in self.scalar_updates or periodic_event
 
     @torch.no_grad()
     def observe(self, *, parameter, gradient, momentum_prev, momentum_candidate,
                 momentum_persisted_decoded, direction, updated, group,
                 momentum_error_prev=None, momentum_error=None,
-                error_feedback_alpha=0.0, **kwargs):
+                error_feedback_alpha=0.0, error_feedback_mode="none",
+                error_feedback_interval=None, correction_applied=False,
+                error_accumulator_prev=None, injected_correction=None,
+                error_accumulator_next=None, **kwargs):
         if not self.collecting:
             # Still retain the previous unquantized candidate for the next
             # update's local counterfactual; this is observer-only transient
@@ -79,6 +86,12 @@ class MuonMechanismObserver:
                          else momentum_error.detach().float())
         mu = float(group.get("muon_momentum", self.metadata.get("muon_momentum", .95)))
         injected = error_prev * (float(error_feedback_alpha) * mu)
+        accumulator_prev = (torch.zeros_like(candidate) if error_accumulator_prev is None
+                            else error_accumulator_prev.detach().float())
+        injected_value = (injected if injected_correction is None
+                          else injected_correction.detach().float())
+        accumulator_next = (torch.zeros_like(candidate) if error_accumulator_next is None
+                            else error_accumulator_next.detach().float())
         reconstructed_prev = pre + error_prev
         prior_candidate = (self._previous_candidates.get(pid) if pid in self._previous_candidates
                            else torch.zeros_like(candidate))
@@ -97,6 +110,12 @@ class MuonMechanismObserver:
             "persisted_dot": float((persisted * candidate).sum().item()),
             "error_prev_sq": float(error_prev.square().sum().item()),
             "error_current_sq": float(current_error.square().sum().item()),
+            "accumulator_prev_sq": float(accumulator_prev.square().sum().item()),
+            "accumulator_next_sq": float(accumulator_next.square().sum().item()),
+            "correction_applied": bool(correction_applied),
+            "error_feedback_interval": error_feedback_interval,
+            "error_feedback_mode": error_feedback_mode,
+            "injected_actual_sq": float(injected_value.square().sum().item()),
             "mu_error_prev_sq": float((mu * error_prev).square().sum().item()),
             "injected_sq": float(injected.square().sum().item()),
             "injected_grad_dot": float((injected * grad).sum().item()),
@@ -121,6 +140,9 @@ class MuonMechanismObserver:
         p2 = sum(x["persisted_sq"] for x in items); pdot = sum(x["persisted_dot"] for x in items)
         e_prev2 = sum(x["error_prev_sq"] for x in items)
         e2 = sum(x["error_current_sq"] for x in items)
+        accumulator_prev2 = sum(x["accumulator_prev_sq"] for x in items)
+        accumulator_next2 = sum(x["accumulator_next_sq"] for x in items)
+        injected_actual2 = sum(x["injected_actual_sq"] for x in items)
         mu_e2 = sum(x["mu_error_prev_sq"] for x in items)
         injected2 = sum(x["injected_sq"] for x in items)
         injected_dot = sum(x["injected_grad_dot"] for x in items)
@@ -139,6 +161,12 @@ class MuonMechanismObserver:
             "persistence_quantization_cosine": pdot / max(math.sqrt(p2 * c2), 1e-30) if p2 and c2 else 1.0,
             "persistence_norm_ratio": math.sqrt(p2 / max(c2, 1e-30)),
             "error_feedback_alpha": float(self.metadata.get("error_feedback_alpha", 0.0)),
+            "error_feedback_mode": self.metadata.get("error_feedback_mode", "none"),
+            "error_feedback_interval": self.metadata.get("error_feedback_interval"),
+            "correction_applied": any(x["correction_applied"] for x in items),
+            "periodic_accumulator_norm_ratio": math.sqrt(accumulator_prev2 / max(c2, 1e-30)),
+            "periodic_accumulator_next_norm_ratio": math.sqrt(accumulator_next2 / max(c2, 1e-30)),
+            "periodic_injected_correction_norm_ratio": math.sqrt(injected_actual2 / max(c2, 1e-30)),
             "error_buffer_norm_ratio": math.sqrt(e2 / max(c2, 1e-30)),
             "previous_error_buffer_norm_ratio": math.sqrt(e_prev2 / max(c2, 1e-30)),
             "mu_error_prev_norm_ratio": math.sqrt(mu_e2 / max(c2, 1e-30)),

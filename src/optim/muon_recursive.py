@@ -58,6 +58,25 @@ def _repeat_block_scales(scales: torch.Tensor, count: int, block_size: int) -> t
     return torch.repeat_interleave(scales, block_size)[:count]
 
 
+def periodic_error_accumulator_next(accumulator: torch.Tensor, residual: torch.Tensor,
+                                    momentum: float, *, correction_applied: bool) -> torch.Tensor:
+    """Advance unpaid persistence residuals to the next update.
+
+    ``accumulator`` is injected and paid before the current candidate when a
+    correction event is due.  Otherwise its contribution remains outstanding
+    and decays once through the momentum recurrence.
+    """
+    if correction_applied:
+        return residual.mul(momentum)
+    return accumulator.mul(momentum).add(residual, alpha=momentum)
+
+
+def periodic_correction_due(update: int, interval: int) -> bool:
+    if update <= 0 or interval <= 0:
+        raise ValueError("update and correction interval must be positive")
+    return update % interval == 0
+
+
 def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) -> torch.Tensor:
     """Pack fixed-width unsigned indices into bytes, least-significant-bit first.
 
@@ -365,33 +384,60 @@ class RecursiveMuon(torch.optim.Optimizer):
     This is deliberately an experimental optimizer. Non-Muon parameters use
     ordinary FP32 AdamW moments. ``recursive_error_feedback_alpha`` controls an
     optional persistent FP32 residual of the compressed Muon state, not an
-    uncompressed momentum copy.
+    uncompressed momentum copy. Periodic mode stores a decayed unpaid-residual
+    accumulator and injects it only at configured update multiples.
     """
 
     def __init__(self, params, codecs: dict[int, StructuralVQCodec], *, lr=1e-3,
                  betas=(.9, .999), eps=1e-8, weight_decay=.1, muon_momentum=.95,
                  muon_nesterov=True, muon_ns_steps=5,
                  muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7,
-                 recursive_error_feedback_alpha=0.0):
+                 recursive_error_feedback_alpha=0.0,
+                 recursive_error_feedback_mode=None,
+                 recursive_error_feedback_interval=None):
         if isinstance(recursive_error_feedback_alpha, bool):
             raise ValueError("recursive_error_feedback_alpha must be finite and nonnegative")
         alpha = float(recursive_error_feedback_alpha)
         if not math.isfinite(alpha) or alpha < 0:
             raise ValueError("recursive_error_feedback_alpha must be finite and nonnegative")
+        mode = recursive_error_feedback_mode or ("fractional" if alpha > 0 else "none")
+        if mode not in {"none", "fractional", "periodic"}:
+            raise ValueError("recursive_error_feedback_mode must be none, fractional, or periodic")
+        if mode == "periodic":
+            if isinstance(recursive_error_feedback_interval, bool) or not isinstance(recursive_error_feedback_interval, int) or recursive_error_feedback_interval <= 0:
+                raise ValueError("periodic feedback requires a positive integer interval")
+            if alpha != 0:
+                raise ValueError("periodic feedback requires recursive_error_feedback_alpha=0")
+        elif recursive_error_feedback_interval is not None:
+            raise ValueError("recursive_error_feedback_interval is only valid in periodic mode")
+        if mode == "none" and alpha != 0:
+            raise ValueError("none feedback mode requires alpha=0")
+        if mode == "fractional" and alpha <= 0:
+            raise ValueError("fractional feedback mode requires alpha>0")
         self.codecs = codecs
         self.recursive_error_feedback_alpha = alpha
+        self.recursive_error_feedback_mode = mode
+        self.recursive_error_feedback_interval = recursive_error_feedback_interval
         self._mechanism_observer = None
         self._mechanism_update = None
+        self._training_update = None
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
                         muon_momentum=muon_momentum, muon_nesterov=muon_nesterov,
                         muon_ns_steps=muon_ns_steps, muon_ns_coefficients=tuple(muon_ns_coefficients),
-                        muon_eps=muon_eps, recursive_error_feedback_alpha=alpha)
+                        muon_eps=muon_eps, recursive_error_feedback_alpha=alpha,
+                        recursive_error_feedback_mode=mode,
+                        recursive_error_feedback_interval=recursive_error_feedback_interval)
         super().__init__(params, defaults)
 
     def set_mechanism_observer(self, observer):
         self._mechanism_observer = observer
 
     def set_mechanism_update(self, update):
+        self._mechanism_update = int(update)
+
+    def set_training_update(self, update):
+        """Supply the global recipe update index for deterministic schedules."""
+        self._training_update = int(update)
         self._mechanism_update = int(update)
 
     @staticmethod
@@ -445,6 +491,9 @@ class RecursiveMuon(torch.optim.Optimizer):
             error = state.get("momentum_error")
             if torch.is_tensor(error):
                 state["momentum_error"] = error.to(device=parameter.device, dtype=torch.float32)
+            accumulator = state.get("momentum_error_accumulator")
+            if torch.is_tensor(accumulator):
+                state["momentum_error_accumulator"] = accumulator.to(device=parameter.device, dtype=torch.float32)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -468,28 +517,47 @@ class RecursiveMuon(torch.optim.Optimizer):
                     previous_error = state.get("momentum_error")
                     if previous_error is None:
                         previous_error = torch.zeros_like(p, dtype=torch.float32)
+                    mode = group.get("recursive_error_feedback_mode", self.recursive_error_feedback_mode)
+                    interval = group.get("recursive_error_feedback_interval", self.recursive_error_feedback_interval)
+                    update = self._training_update if self._training_update is not None else self._mechanism_update
+                    correction_applied = mode == "periodic" and update is not None and periodic_correction_due(update, interval)
+                    previous_accumulator = state.get("momentum_error_accumulator")
+                    if previous_accumulator is None:
+                        previous_accumulator = torch.zeros_like(p, dtype=torch.float32)
                     momentum = previous_decoded.mul(mu).add(grad)
                     alpha = group.get("recursive_error_feedback_alpha", 0.0)
                     if alpha:
                         # Restore a controlled fraction of the previous
                         # persistence residual: mu * (decoded + alpha * error).
                         momentum.add_(previous_error, alpha=alpha * mu)
+                    elif mode == "periodic" and correction_applied:
+                        momentum.add_(previous_accumulator)
                     direction = grad.add(momentum, alpha=group["muon_momentum"]) if group["muon_nesterov"] else momentum
                     update = zeropower_newton_schulz(direction, group["muon_ns_steps"], group["muon_ns_coefficients"], group["muon_eps"])
                     updated = p.float().mul(1 - group["lr"] * group["weight_decay"]).add(update, alpha=-group["lr"])
                     encoded = codec.encode(momentum)
-                    persisted_decoded = codec.decode(encoded, device=p.device) if (alpha or self._mechanism_observer is not None) else None
-                    current_error = momentum - persisted_decoded if alpha else None
+                    persisted_decoded = codec.decode(encoded, device=p.device) if (alpha or mode == "periodic" or self._mechanism_observer is not None) else None
+                    current_error = momentum - persisted_decoded if (alpha or mode == "periodic") else None
+                    next_accumulator = (periodic_error_accumulator_next(previous_accumulator, current_error, mu,
+                                        correction_applied=correction_applied) if mode == "periodic" else None)
                     if self._mechanism_observer is not None:
                         self._mechanism_observer(parameter=p, gradient=grad, momentum_prev=previous_decoded,
                             momentum_candidate=momentum, momentum_persisted_decoded=persisted_decoded,
                             direction=direction, updated=updated, group=group, update=self._mechanism_update,
                             compressed_state=encoded, momentum_error_prev=previous_error,
-                            momentum_error=current_error, error_feedback_alpha=alpha)
+                            momentum_error=current_error, error_feedback_alpha=alpha,
+                            error_feedback_mode=mode,
+                            error_feedback_interval=interval,
+                            correction_applied=correction_applied,
+                            error_accumulator_prev=previous_accumulator if mode == "periodic" else None,
+                            injected_correction=previous_accumulator if correction_applied else torch.zeros_like(momentum),
+                            error_accumulator_next=next_accumulator)
                     p.copy_(updated.to(p.dtype))
                     state["compressed_momentum"] = encoded
                     if alpha:
                         state["momentum_error"] = current_error
+                    if mode == "periodic":
+                        state["momentum_error_accumulator"] = next_accumulator
                 else:
                     step = state.get("step", 0) + 1; state["step"] = step
                     beta1, beta2 = group["betas"]
@@ -510,7 +578,9 @@ class RecursiveMuon(torch.optim.Optimizer):
                 rows.append({"parameter_id": id(p), "shape": list(encoded.shape),
                              "storage_bits": self.codecs[id(p)].storage_bits(encoded),
                              "error_buffer_bits": int(error.numel() * error.element_size() * 8) if torch.is_tensor(error) else 0,
-                             "has_fp32_momentum": False, "has_fp32_error_buffer": torch.is_tensor(error)})
+                             "periodic_accumulator_bits": int(state["momentum_error_accumulator"].numel() * state["momentum_error_accumulator"].element_size() * 8) if torch.is_tensor(state.get("momentum_error_accumulator")) else 0,
+                             "has_fp32_momentum": False, "has_fp32_error_buffer": torch.is_tensor(error),
+                             "has_fp32_periodic_accumulator": torch.is_tensor(state.get("momentum_error_accumulator"))})
             else:
                 # Auxiliary AdamW state is intentionally unchanged and remains
                 # FP32; include it in accounting rather than silently dropping
@@ -532,8 +602,9 @@ class RecursiveMuon(torch.optim.Optimizer):
         compressed_muon_bits = sum(r["storage_bits"] for r in muon_rows)
         muon_scalar_count = sum(math.prod(r["shape"]) for r in muon_rows)
         error_buffer_bits = sum(r.get("error_buffer_bits", 0) for r in rows)
-        persistent_bits = compressed_bits + error_buffer_bits + codebook_bits
-        muon_total_bits = compressed_muon_bits + error_buffer_bits + codebook_bits
+        periodic_accumulator_bits = sum(r.get("periodic_accumulator_bits", 0) for r in rows)
+        persistent_bits = compressed_bits + error_buffer_bits + periodic_accumulator_bits + codebook_bits
+        muon_total_bits = compressed_muon_bits + error_buffer_bits + periodic_accumulator_bits + codebook_bits
         # Keep the common run-summary contract in addition to the recursive
         # storage-specific fields.  The summary writer records bytes, while
         # this optimizer also exposes the exact serialized bit count.
@@ -543,11 +614,14 @@ class RecursiveMuon(torch.optim.Optimizer):
                 "tensors": rows, "persistent_bits": persistent_bits,
                 "codebook_bits": codebook_bits,
                 "compressed_state_bits": compressed_bits, "error_buffer_bits": error_buffer_bits,
+                "periodic_accumulator_bits": periodic_accumulator_bits,
                 "compressed_muon_state_bits": compressed_muon_bits,
                 "muon_scalar_count": muon_scalar_count,
                 "muon_total_state_bits": muon_total_bits,
                 "error_buffer_bytes": (error_buffer_bits + 7) // 8,
                 "muon_effective_bits_per_value": muon_total_bits / muon_scalar_count if muon_scalar_count else 0.0,
                 "error_feedback_alpha": self.recursive_error_feedback_alpha,
+                "error_feedback_mode": self.recursive_error_feedback_mode,
+                "error_feedback_interval": self.recursive_error_feedback_interval,
                 "compressed_muon_tensor_count": sum("key" not in r for r in rows),
                 "structure_mode": "exact_svd_oracle"}
