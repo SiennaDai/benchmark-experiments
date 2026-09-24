@@ -137,6 +137,24 @@ def test_diagnostics_do_not_create_persistent_state_or_change_alpha_zero_step():
     assert "momentum_error" not in observed.state_dict()["state"][0]
 
 
+def test_mechanism_observer_does_not_change_error_feedback_trajectory():
+    torch.manual_seed(151)
+    initial = torch.randn(8, 8)
+    p0 = torch.nn.Parameter(initial.clone()); p1 = torch.nn.Parameter(initial.clone())
+    plain = _recursive(p0, 1.0); observed = _recursive(p1, 1.0)
+    observed.set_mechanism_observer(lambda **kwargs: None)
+    for update in range(1, 4):
+        grad = torch.randn(8, 8)
+        plain.set_mechanism_update(update); observed.set_mechanism_update(update)
+        _step(plain, p0, grad); _step(observed, p1, grad)
+        assert torch.equal(p0, p1)
+        s0, s1 = plain.state[p0], observed.state[p1]
+        assert torch.equal(s0["momentum_error"], s1["momentum_error"])
+        assert torch.equal(s0["compressed_momentum"].indices,
+                           s1["compressed_momentum"].indices)
+        assert set(s1) == {"compressed_momentum", "momentum_error"}
+
+
 def test_alpha_must_be_finite_and_nonnegative():
     p = torch.nn.Parameter(torch.zeros(8, 8))
     for alpha in (-.1, math.inf, math.nan, True):
