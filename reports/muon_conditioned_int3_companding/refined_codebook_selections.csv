@@ -1,0 +1,7 @@
+k,conditioner,coarse_a1,coarse_a2,a1,a2,levels,calibration_seed,search
+4,muon_codebook,0.2,0.6,0.20000000298023224,0.550000011920929,"-1,-0.55,-0.2,0,0.2,0.55,1",0,coarse six-point grid then local 0.05 grid
+4,geometry_codebook,0.2,0.6,0.20000000298023224,0.550000011920929,"-1,-0.55,-0.2,0,0.2,0.55,1",0,coarse six-point grid then local 0.05 grid
+4,danger_zone_codebook,0.2,0.6,0.20000000298023224,0.550000011920929,"-1,-0.55,-0.2,0,0.2,0.55,1",0,coarse six-point grid then local 0.05 grid
+8,muon_codebook,0.2,0.6,0.20000000298023224,0.550000011920929,"-1,-0.55,-0.2,0,0.2,0.55,1",0,coarse six-point grid then local 0.05 grid
+8,geometry_codebook,0.2,0.6,0.20000000298023224,0.550000011920929,"-1,-0.55,-0.2,0,0.2,0.55,1",0,coarse six-point grid then local 0.05 grid
+8,danger_zone_codebook,0.2,0.6,0.25,0.550000011920929,"-1,-0.55,-0.25,0,0.25,0.55,1",0,coarse six-point grid then local 0.05 grid

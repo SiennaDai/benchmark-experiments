@@ -1,0 +1,47 @@
+{
+  "attention_backend": "auto",
+  "compile": false,
+  "compute": "fp32",
+  "deterministic": true,
+  "device": "cuda:0",
+  "gradient_dtype": "fp32",
+  "optimizer_state_simulation": "none",
+  "parameter_dtype": "fp32",
+  "parameter_grouping": {
+    "auxiliary_adamw_parameters": 19321728,
+    "auxiliary_adamw_tensor_count": 14,
+    "muon_parameters": 10616832,
+    "muon_tensor_count": 30
+  },
+  "roundtrip_state_policy": "post_update; current FP32 state drives current update; persisted state affects next step",
+  "state_diagnostics": {
+    "enabled": false,
+    "percentile_method": "bounded deterministic per-tensor evenly-spaced samples; exact counts/extrema/L2 reductions",
+    "stream": "state_diagnostics.jsonl",
+    "timing": "detached read-only observation after FP32 moment/current update and after persistence simulation"
+  },
+  "state_persistence": {
+    "actual_optimizer_memory_reduction": true,
+    "persistence_timing": "post_update; current FP32 state drives current update; persisted state affects next step",
+    "persistent_storage_in_platform": "serialized_compressed_state",
+    "quantizer": "structural_recursive_codec",
+    "simulation": "none",
+    "state_groups": {
+      "auxiliary_adamw": {
+        "quantized_state_names": [],
+        "states_left_fp32": [
+          "exp_avg",
+          "exp_avg_sq"
+        ]
+      },
+      "muon": {
+        "quantized_state_names": [
+          "compressed_momentum"
+        ],
+        "states_left_fp32": []
+      }
+    }
+  },
+  "tf32": false,
+  "to_device": "cuda:0"
+}

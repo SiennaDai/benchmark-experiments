@@ -1,0 +1,19 @@
+rank,family,codewords_requested,seed,iterations,samples,requested_codewords,actual_codewords,dead_codewords,calibration_seed,pairing,objective,rotation
+4,shared_mse_kmeans,32,2026,24,30000,32,32,0,0,contiguous,2D Euclidean MSE,
+4,shared_mse_kmeans,64,2026,24,30000,64,64,0,0,contiguous,2D Euclidean MSE,
+4,shared_mse_kmeans,128,2026,24,30000,128,128,0,0,contiguous,2D Euclidean MSE,
+4,polar_8x8_sqrt,64,,,,,57,,fixed analytic,,none,
+4,polar_16x4_uniform,64,,,,,49,,fixed analytic,,none,
+4,polar_32x2_log,64,,,,,33,,fixed analytic,,none,
+4,per_dimension_scale_mse_kmeans,64,2026,24,30000,64,64,0,0,,2D Euclidean MSE after per-coordinate p98,
+4,pca_rotated_mse_kmeans,64,2026,24,30000,64,64,0,0,,,global PCA
+4,spectral_local_mse_kmeans,64,2026,24,30000,64,64,0,0,nearest row-major FP32 spectral coefficients,,
+8,shared_mse_kmeans,32,2026,24,30000,32,32,0,0,contiguous,2D Euclidean MSE,
+8,shared_mse_kmeans,64,2026,24,30000,64,64,0,0,contiguous,2D Euclidean MSE,
+8,shared_mse_kmeans,128,2026,24,30000,128,128,0,0,contiguous,2D Euclidean MSE,
+8,polar_8x8_sqrt,64,,,,,57,,fixed analytic,,none,
+8,polar_16x4_uniform,64,,,,,49,,fixed analytic,,none,
+8,polar_32x2_log,64,,,,,33,,fixed analytic,,none,
+8,per_dimension_scale_mse_kmeans,64,2026,24,30000,64,64,0,0,,2D Euclidean MSE after per-coordinate p98,
+8,pca_rotated_mse_kmeans,64,2026,24,30000,64,64,0,0,,,global PCA
+8,spectral_local_mse_kmeans,64,2026,24,30000,64,64,0,0,nearest row-major FP32 spectral coefficients,,

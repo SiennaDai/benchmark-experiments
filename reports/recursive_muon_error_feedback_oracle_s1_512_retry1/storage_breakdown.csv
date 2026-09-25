@@ -1,0 +1,5 @@
+method,persistent_bytes,compressed_state_bits,error_buffer_bits,error_buffer_bytes,muon_scalar_count,muon_effective_bits_per_value,codebook_bits,has_fp32_momentum_shadow
+fp32,197041152,,0,0,,,,False
+alpha0,159203552,,0,0,,,4096,False
+alpha05,201670880,1273624320,339738624,42467328,10616832,35.48859471450617,4096,False
+alpha1,201670880,1273624320,339738624,42467328,10616832,35.48859471450617,4096,False

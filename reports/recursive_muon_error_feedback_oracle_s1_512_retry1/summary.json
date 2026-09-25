@@ -1,0 +1,79 @@
+{
+  "status": "completed",
+  "protocol_integrity": {
+    "status": "compatible",
+    "shared_fields": [
+      "seed",
+      "data_seed",
+      "algorithm_seed",
+      "protocol_id",
+      "data_fingerprint",
+      "schedule_total_updates",
+      "total_updates",
+      "target_tokens",
+      "sequence_length",
+      "compute_precision"
+    ],
+    "paired_train_events": 512,
+    "landmarks": [
+      1,
+      8,
+      32,
+      128,
+      512
+    ],
+    "batch_identity": "same seed/data seed, deterministic protocol, update/token/LR event alignment; batch IDs are not persisted",
+    "vq_codebook_keys": {
+      "alpha0": "s0_k8_w64_t8_v1200",
+      "alpha05": "s0_k8_w64_t8_v1200",
+      "alpha1": "s0_k8_w64_t8_v1200"
+    },
+    "vq_codebook_paths": [
+      "reports/muon_vector_int3_robustness/calibration_codebooks.pt"
+    ],
+    "resolved_config_protocol_match": true
+  },
+  "runs": {
+    "fp32": "/tmp/recursive-muon-ef-analysis.VwJC7Y/fp32",
+    "alpha0": "/tmp/recursive-muon-ef-analysis.VwJC7Y/alpha0",
+    "alpha05": "/tmp/recursive-muon-ef-analysis.VwJC7Y/alpha05",
+    "alpha1": "/tmp/recursive-muon-ef-analysis.VwJC7Y/alpha1"
+  },
+  "validation_nll": {
+    "fp32": {
+      "0": 10.86390045285225,
+      "128": 6.362571250647306,
+      "256": 5.832528513856232,
+      "384": 5.6789092971012,
+      "512": 5.55546904169023
+    },
+    "alpha0": {
+      "0": 10.86390045285225,
+      "128": 6.397437922656536,
+      "256": 5.846569838933647,
+      "384": 5.703422016464174,
+      "512": 5.582526474259794
+    },
+    "alpha05": {
+      "0": 10.86390045285225,
+      "128": 6.37700873054564,
+      "256": 5.840166111476719,
+      "384": 5.696013307198882,
+      "512": 5.570629778318107
+    },
+    "alpha1": {
+      "0": 10.86390045285225,
+      "128": 6.362571231089532,
+      "256": 5.832528513856232,
+      "384": 5.678909273818135,
+      "512": 5.555469017475843
+    }
+  },
+  "aggregation": "global tensor-norm pooling over concatenated Muon tensor values",
+  "recurrence": "M_t=mu*M_prev_decoded+g_t+alpha*mu*e_prev; D_t=g_t+mu*M_t; e_t=M_t-decode(Q(M_t))",
+  "limitations": [
+    "oracle uses a full FP32 persistence-error buffer and is not a storage-efficient optimizer",
+    "batch IDs are not persisted; pairing is validated by deterministic protocol and update/token/LR alignment",
+    "alpha=0 and FP32 trajectories are reused rather than rerun"
+  ]
+}

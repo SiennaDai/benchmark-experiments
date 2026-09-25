@@ -1,0 +1,572 @@
+{
+  "algorithm_seed": 2026,
+  "best_validation_nll": 4.77458659466356,
+  "best_validation_update": 4096,
+  "completed_updates": 4096,
+  "compute_precision": "fp32",
+  "cuda_peak_allocated_bytes": 1552956416,
+  "cuda_peak_reserved_bytes": 1925185536,
+  "data_fingerprint": "30152c9b80e86cadbc9215f83794d92011bbbf5b827a2aedb31aa5d50c78fe18",
+  "data_seed": 1337,
+  "divergence": null,
+  "effective_tokens_per_second": 6007.662751976596,
+  "elapsed_seconds": 5704.222093929001,
+  "eval_elapsed_seconds": 75.89147033799804,
+  "final_validation_nll": 4.77458659466356,
+  "git_commit": "8e1661786e3d08ebeb05d723b2d71e8aa42cc94a",
+  "grad_clip_event_count": 4096,
+  "initial_validation_nll": 10.86343090236187,
+  "max_grad_norm": 9.502729415893555,
+  "mean_update_seconds": 1.3635918556354931,
+  "optimizer_name": "recursive_muon",
+  "optimizer_state": {
+    "codebook_bits": 0,
+    "compressed_muon_tensor_count": 30,
+    "logical_tensor_bytes": 160530144,
+    "persistent_bits": 1284241152,
+    "structure_mode": "exact_svd_oracle",
+    "tensors": [
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401280448496,
+        "shape": [
+          1152,
+          384
+        ],
+        "storage_bits": 1973120
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279458176,
+        "shape": [
+          384,
+          384
+        ],
+        "storage_bits": 690560
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279458256,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279458416,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279458496,
+        "shape": [
+          384,
+          1024
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279458656,
+        "shape": [
+          1152,
+          384
+        ],
+        "storage_bits": 1973120
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279458736,
+        "shape": [
+          384,
+          384
+        ],
+        "storage_bits": 690560
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279458896,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279458976,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279459056,
+        "shape": [
+          384,
+          1024
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279459216,
+        "shape": [
+          1152,
+          384
+        ],
+        "storage_bits": 1973120
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279459296,
+        "shape": [
+          384,
+          384
+        ],
+        "storage_bits": 690560
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279459456,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279459536,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279459616,
+        "shape": [
+          384,
+          1024
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279459776,
+        "shape": [
+          1152,
+          384
+        ],
+        "storage_bits": 1973120
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279459856,
+        "shape": [
+          384,
+          384
+        ],
+        "storage_bits": 690560
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460016,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460096,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460176,
+        "shape": [
+          384,
+          1024
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460336,
+        "shape": [
+          1152,
+          384
+        ],
+        "storage_bits": 1973120
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460416,
+        "shape": [
+          384,
+          384
+        ],
+        "storage_bits": 690560
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460576,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460656,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460736,
+        "shape": [
+          384,
+          1024
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460896,
+        "shape": [
+          1152,
+          384
+        ],
+        "storage_bits": 1973120
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279460976,
+        "shape": [
+          384,
+          384
+        ],
+        "storage_bits": 690560
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279461136,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279461216,
+        "shape": [
+          1024,
+          384
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "parameter_id": 140401279461296,
+        "shape": [
+          384,
+          1024
+        ],
+        "storage_bits": 1759360
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401296334976,
+        "shape": [
+          50304,
+          384
+        ],
+        "storage_bits": 618135552
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401296334976,
+        "shape": [
+          50304,
+          384
+        ],
+        "storage_bits": 618135552
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140406758076048,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140406758076048,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279458336,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279458336,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279458096,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279458096,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279458816,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279458816,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279459136,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279459136,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279459376,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279459376,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279459696,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279459696,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279459936,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279459936,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279460256,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279460256,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279460496,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279460496,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279460816,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279460816,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279461056,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279461056,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg",
+        "parameter_id": 140401279461376,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      },
+      {
+        "has_fp32_momentum": false,
+        "key": "exp_avg_sq",
+        "parameter_id": 140401279461376,
+        "shape": [
+          384
+        ],
+        "storage_bits": 12288
+      }
+    ],
+    "unique_storage_bytes": 160530144
+  },
+  "optimizer_state_bytes": 160530144,
+  "optimizer_state_tensor_count": 58,
+  "processed_target_tokens": 33554432,
+  "protocol_id": "slimpajama-hash-split-v1",
+  "reason": "explicit stage gate at update 4096",
+  "recipe_fingerprint": "d9781e9a40120a433fa25f926216d6f8845066a0e65c515d8b2223cb3f04651e",
+  "recipe_name": "recursive_muon_structural_int4_4096_s0",
+  "run_id": "recursive_int4_4096_s0",
+  "schedule_total_updates": 4096,
+  "seed": 0,
+  "sequence_length": 256,
+  "status": "paused_staged",
+  "target_tokens": 33554432,
+  "total_elapsed_seconds": 5704.222093929001,
+  "total_updates": 4096,
+  "train_elapsed_seconds": 5585.27224068298
+}

@@ -1,0 +1,55 @@
+{
+  "data_fingerprint": null,
+  "recipe_fingerprints": {
+    "recursive_int4_4096_s1": "c69ddd1c592cc154fdd84f7a37b8a33245ea35214a774f67c19fa1b906eb0dee",
+    "recursive_vq_int3_4096_s1": "c2b89e71ac438904e6cb8cf51605ea3308055a089c3db14072a05bd354e7fab1"
+  },
+  "resolved_at": "2026-09-23T10:47:18Z",
+  "source": {
+    "commit": "6b1f47a4be9c757156fd022fda939817b95f9139",
+    "dirty": false
+  },
+  "suite": {
+    "name": "recursive_muon_structural_4096_s1_v1",
+    "report": {
+      "output": "reports/recursive_muon_structural_4096_s1_v1"
+    },
+    "runs": [
+      {
+        "recipe": "/kaggle/working/benchmark-experiments/recipes/recursive_muon_structural_int4_4096_s1.json",
+        "run_id": "recursive_int4_4096_s1"
+      },
+      {
+        "recipe": "/kaggle/working/benchmark-experiments/recipes/recursive_muon_structural_vq_int3_4096_s1.json",
+        "run_id": "recursive_vq_int3_4096_s1"
+      }
+    ],
+    "runtime": {
+      "device": "cuda:0",
+      "max_wall_seconds": 39600
+    },
+    "trajectory": {
+      "control_value": "int4",
+      "group_by": [
+        "experiment.seed"
+      ],
+      "landmark_updates": [
+        128,
+        512,
+        1024,
+        2048,
+        4096
+      ],
+      "treatment_field": "optimizer.recursive_representation",
+      "treatment_values": [
+        "vq_int3"
+      ]
+    },
+    "vary": [
+      "optimizer.recursive_representation",
+      "optimizer.recursive_codebook_path",
+      "optimizer.recursive_codebook_key"
+    ]
+  },
+  "suite_path": "/kaggle/working/benchmark-experiments/benchmarks/recursive_muon_structural_4096_s1_v1.json"
+}

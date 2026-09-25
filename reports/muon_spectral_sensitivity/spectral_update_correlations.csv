@@ -1,0 +1,13 @@
+quantizer,feature,target,sample_count,pearson,spearman
+int8-linear-b2048,log_effective_condition_number,update_direction_error,300,0.7382174653775192,0.8861406111335305
+int8-linear-b2048,tail_relative_spectral_perturbation,update_direction_error,300,0.5085536440656402,0.9443705979367161
+int8-linear-b2048,tail_subspace_distortion,update_direction_error,300,0.9622853442508945,0.953348920915674
+int8-linear-b2048,effective_rank,update_direction_error,300,-0.12511214085859215,-0.14622526644015793
+int4-linear-b2048,log_effective_condition_number,update_direction_error,300,0.7920150014163765,0.8823458038422649
+int4-linear-b2048,tail_relative_spectral_perturbation,update_direction_error,300,0.49266280171622784,0.9420869120768008
+int4-linear-b2048,tail_subspace_distortion,update_direction_error,300,0.91827658157215,0.9568461871798576
+int4-linear-b2048,effective_rank,update_direction_error,300,-0.1542338483848097,-0.1475000998020771
+int4-dynamic-b2048,log_effective_condition_number,update_direction_error,300,0.8373288920964342,0.9148474983055367
+int4-dynamic-b2048,tail_relative_spectral_perturbation,update_direction_error,300,0.5319011966950755,0.9242124912499028
+int4-dynamic-b2048,tail_subspace_distortion,update_direction_error,300,0.9413554616035064,0.960812897921088
+int4-dynamic-b2048,effective_rank,update_direction_error,300,-0.17616012570687778,-0.16101350566121295

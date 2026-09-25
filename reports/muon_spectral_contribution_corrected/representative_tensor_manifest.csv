@@ -1,0 +1,4 @@
+seed,update,parameter_id,selection_reason
+0,4096,transformer.h.3.mlp.c_proj.weight,low_baseline_error
+1,128,transformer.h.5.attn.c_proj.weight,high_baseline_error
+1,512,transformer.h.5.mlp.w2.weight,median_baseline_error

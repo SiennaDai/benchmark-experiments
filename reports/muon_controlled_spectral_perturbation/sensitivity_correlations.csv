@@ -1,0 +1,7 @@
+quantizer,feature,target,sample_count,pearson,spearman
+int4-dynamic-b2048,effective_condition_number,actual_update_error,300,0.436811050543258,0.9148474983055367
+int4-dynamic-b2048,tail_rotation_sensitivity,actual_update_error,7,0.9226416661544655,0.9642857142857142
+int4-dynamic-b2048,tail_singular_value_sensitivity,actual_update_error,7,0.9677450654301065,0.9999999999999999
+int4-dynamic-b2048,tail_head_sensitivity_ratio,actual_update_error,7,0.9441786432349722,0.9642857142857142
+int4-dynamic-b2048,tail_singular_value_error_fraction,actual_update_error,300,-0.4299954471089402,-0.42339492661029565
+int4-dynamic-b2048,tail_subspace_mixing_fraction,actual_update_error,300,0.9646094095838004,0.9547541639351549

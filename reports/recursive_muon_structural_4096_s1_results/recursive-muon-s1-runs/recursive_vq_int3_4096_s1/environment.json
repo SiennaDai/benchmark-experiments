@@ -1,0 +1,15 @@
+{
+  "captured_at": "2026-09-23T09:10:00Z",
+  "cpu_count": 4,
+  "cuda_available": true,
+  "cuda_devices": [
+    "Tesla T4"
+  ],
+  "machine": "x86_64",
+  "numpy": "2.0.2",
+  "platform": "Linux-6.12.90+-x86_64-with-glibc2.35",
+  "processor": "x86_64",
+  "python": "3.12.13",
+  "torch": "2.10.0+cu128",
+  "torch_cuda": "12.8"
+}

@@ -1,0 +1,153 @@
+Kaggle preflight (physical GPU 0 exposed as cuda:0)...
+/usr/local/lib/python3.12/dist-packages/torch/autograd/__init__.py:16: FutureWarning: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+  from torch import _vmap_internals
+{
+  "recipe": "/kaggle/working/benchmark-experiments/recipes/recursive_muon_structural_int4_4096_s0.json",
+  "fingerprint": "d9781e9a40120a433fa25f926216d6f8845066a0e65c515d8b2223cb3f04651e",
+  "total_updates": 4096,
+  "schedule_total_updates": 4096,
+  "tokens_per_update": 8192,
+  "data_root": "/kaggle/working/benchmark-data",
+  "manifest": "/kaggle/input/datasets/siennadai/lowp-benchmark-slimpajama-4x-v1/manifest.json",
+  "manifest_exists": true,
+  "optimizer": "recursive_muon",
+  "compute": "fp32",
+  "to_device": "cuda:0",
+  "resolved_device": "cuda:0"
+}
+/usr/local/lib/python3.12/dist-packages/torch/autograd/__init__.py:16: FutureWarning: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+  from torch import _vmap_internals
+[run] recursive_int4_4096_s0 | recursive_muon | cuda:0 | fp32 | 4096 updates | schedule horizon 4096 | 33554432 tokens
+[eval] step 0 | val NLL 10.8634 | ppl 52230.97 | 65536 tokens
+[train] 1/4096 | 8192 tok | loss 10.8941 | lr 5.000e-05 | 1459.1 ms/update | 5614 tok/s
+[train] 2/4096 | 16384 tok | loss 10.8833 | lr 1.000e-04 | 1212.1 ms/update | 6759 tok/s
+[train] 3/4096 | 24576 tok | loss 10.8878 | lr 1.500e-04 | 1187.9 ms/update | 6896 tok/s
+[train] 4/4096 | 32768 tok | loss 10.8700 | lr 2.000e-04 | 1188.1 ms/update | 6895 tok/s
+[train] 5/4096 | 40960 tok | loss 10.8209 | lr 2.500e-04 | 1212.1 ms/update | 6759 tok/s
+[train] 6/4096 | 49152 tok | loss 10.8199 | lr 3.000e-04 | 1194.0 ms/update | 6861 tok/s
+[train] 7/4096 | 57344 tok | loss 10.6640 | lr 3.500e-04 | 1199.1 ms/update | 6832 tok/s
+[train] 8/4096 | 65536 tok | loss 10.5567 | lr 4.000e-04 | 1189.6 ms/update | 6886 tok/s
+[train] 9/4096 | 73728 tok | loss 10.6420 | lr 4.500e-04 | 1190.0 ms/update | 6884 tok/s
+[train] 10/4096 | 81920 tok | loss 10.5585 | lr 5.000e-04 | 1197.0 ms/update | 6844 tok/s
+[train] 11/4096 | 90112 tok | loss 10.4121 | lr 5.500e-04 | 1200.3 ms/update | 6825 tok/s
+[train] 12/4096 | 98304 tok | loss 10.4613 | lr 6.000e-04 | 1196.2 ms/update | 6848 tok/s
+[train] 13/4096 | 106496 tok | loss 10.3047 | lr 6.500e-04 | 1199.4 ms/update | 6830 tok/s
+[train] 14/4096 | 114688 tok | loss 10.0833 | lr 7.000e-04 | 1200.7 ms/update | 6823 tok/s
+[train] 15/4096 | 122880 tok | loss 9.9305 | lr 7.500e-04 | 1197.8 ms/update | 6839 tok/s
+[train] 16/4096 | 131072 tok | loss 9.8924 | lr 8.000e-04 | 1205.0 ms/update | 6798 tok/s
+[train] 17/4096 | 139264 tok | loss 9.6183 | lr 8.500e-04 | 1209.5 ms/update | 6773 tok/s
+[train] 18/4096 | 147456 tok | loss 9.4368 | lr 9.000e-04 | 1212.4 ms/update | 6757 tok/s
+[train] 19/4096 | 155648 tok | loss 9.1885 | lr 9.500e-04 | 1208.4 ms/update | 6779 tok/s
+[train] 20/4096 | 163840 tok | loss 9.1082 | lr 1.000e-03 | 1209.8 ms/update | 6771 tok/s
+[train] 21/4096 | 172032 tok | loss 9.0664 | lr 1.000e-03 | 1204.8 ms/update | 6799 tok/s
+[train] 22/4096 | 180224 tok | loss 8.8025 | lr 1.000e-03 | 1198.3 ms/update | 6836 tok/s
+[train] 23/4096 | 188416 tok | loss 8.5893 | lr 1.000e-03 | 1203.9 ms/update | 6805 tok/s
+[train] 24/4096 | 196608 tok | loss 8.4919 | lr 1.000e-03 | 1208.7 ms/update | 6777 tok/s
+[train] 25/4096 | 204800 tok | loss 8.3267 | lr 1.000e-03 | 1211.0 ms/update | 6764 tok/s
+[train] 26/4096 | 212992 tok | loss 8.0233 | lr 1.000e-03 | 1221.6 ms/update | 6706 tok/s
+[train] 27/4096 | 221184 tok | loss 8.0935 | lr 1.000e-03 | 1212.1 ms/update | 6758 tok/s
+[train] 28/4096 | 229376 tok | loss 7.9366 | lr 1.000e-03 | 1207.4 ms/update | 6785 tok/s
+[train] 29/4096 | 237568 tok | loss 7.7773 | lr 1.000e-03 | 1212.7 ms/update | 6755 tok/s
+[train] 30/4096 | 245760 tok | loss 8.1072 | lr 1.000e-03 | 1203.9 ms/update | 6805 tok/s
+[train] 31/4096 | 253952 tok | loss 7.7622 | lr 1.000e-03 | 1213.6 ms/update | 6750 tok/s
+[train] 32/4096 | 262144 tok | loss 7.8449 | lr 1.000e-03 | 1214.2 ms/update | 6747 tok/s
+[train] 33/4096 | 270336 tok | loss 7.7416 | lr 1.000e-03 | 1213.8 ms/update | 6749 tok/s
+[train] 34/4096 | 278528 tok | loss 8.0222 | lr 1.000e-03 | 1220.8 ms/update | 6710 tok/s
+[train] 35/4096 | 286720 tok | loss 7.6477 | lr 1.000e-03 | 1219.7 ms/update | 6717 tok/s
+[train] 36/4096 | 294912 tok | loss 7.8091 | lr 1.000e-03 | 1223.7 ms/update | 6695 tok/s
+[train] 37/4096 | 303104 tok | loss 8.1645 | lr 1.000e-03 | 1218.5 ms/update | 6723 tok/s
+[train] 38/4096 | 311296 tok | loss 7.7545 | lr 1.000e-03 | 1229.2 ms/update | 6664 tok/s
+[train] 39/4096 | 319488 tok | loss 7.7814 | lr 1.000e-03 | 1228.3 ms/update | 6669 tok/s
+[train] 40/4096 | 327680 tok | loss 7.7177 | lr 9.999e-04 | 1228.2 ms/update | 6670 tok/s
+[train] 41/4096 | 335872 tok | loss 8.0477 | lr 9.999e-04 | 1226.5 ms/update | 6679 tok/s
+[train] 42/4096 | 344064 tok | loss 7.6590 | lr 9.999e-04 | 1229.2 ms/update | 6664 tok/s
+[train] 43/4096 | 352256 tok | loss 7.9488 | lr 9.999e-04 | 1239.4 ms/update | 6610 tok/s
+[train] 44/4096 | 360448 tok | loss 7.9063 | lr 9.999e-04 | 1239.2 ms/update | 6611 tok/s
+[train] 45/4096 | 368640 tok | loss 7.8411 | lr 9.999e-04 | 1246.9 ms/update | 6570 tok/s
+[train] 46/4096 | 376832 tok | loss 7.7192 | lr 9.999e-04 | 1236.7 ms/update | 6624 tok/s
+[train] 47/4096 | 385024 tok | loss 7.6073 | lr 9.999e-04 | 1249.1 ms/update | 6558 tok/s
+[train] 48/4096 | 393216 tok | loss 7.6710 | lr 9.999e-04 | 1247.2 ms/update | 6568 tok/s
+[train] 49/4096 | 401408 tok | loss 7.4495 | lr 9.999e-04 | 1251.7 ms/update | 6545 tok/s
+[train] 50/4096 | 409600 tok | loss 7.7050 | lr 9.999e-04 | 1252.9 ms/update | 6538 tok/s
+[train] 51/4096 | 417792 tok | loss 7.5685 | lr 9.999e-04 | 1253.4 ms/update | 6536 tok/s
+[train] 52/4096 | 425984 tok | loss 7.7348 | lr 9.999e-04 | 1259.0 ms/update | 6507 tok/s
+[train] 53/4096 | 434176 tok | loss 7.6018 | lr 9.999e-04 | 1263.7 ms/update | 6483 tok/s
+[train] 54/4096 | 442368 tok | loss 7.7953 | lr 9.998e-04 | 1261.3 ms/update | 6495 tok/s
+[train] 55/4096 | 450560 tok | loss 7.7623 | lr 9.998e-04 | 1271.0 ms/update | 6445 tok/s
+[train] 56/4096 | 458752 tok | loss 7.3789 | lr 9.998e-04 | 1271.3 ms/update | 6444 tok/s
+[train] 57/4096 | 466944 tok | loss 7.6516 | lr 9.998e-04 | 1280.1 ms/update | 6399 tok/s
+[train] 58/4096 | 475136 tok | loss 7.2271 | lr 9.998e-04 | 1277.4 ms/update | 6413 tok/s
+[train] 59/4096 | 483328 tok | loss 7.2459 | lr 9.998e-04 | 1265.6 ms/update | 6473 tok/s
+[train] 60/4096 | 491520 tok | loss 7.8001 | lr 9.998e-04 | 1282.2 ms/update | 6389 tok/s
+[train] 61/4096 | 499712 tok | loss 7.3171 | lr 9.998e-04 | 1279.8 ms/update | 6401 tok/s
+[train] 62/4096 | 507904 tok | loss 7.6664 | lr 9.998e-04 | 1282.9 ms/update | 6386 tok/s
+[train] 63/4096 | 516096 tok | loss 7.4574 | lr 9.998e-04 | 1285.1 ms/update | 6374 tok/s
+[train] 64/4096 | 524288 tok | loss 7.5861 | lr 9.997e-04 | 1297.2 ms/update | 6315 tok/s
+[train] 65/4096 | 532480 tok | loss 7.3458 | lr 9.997e-04 | 1300.9 ms/update | 6297 tok/s
+[train] 66/4096 | 540672 tok | loss 7.3204 | lr 9.997e-04 | 1299.7 ms/update | 6303 tok/s
+[train] 67/4096 | 548864 tok | loss 7.4075 | lr 9.997e-04 | 1311.3 ms/update | 6247 tok/s
+[train] 68/4096 | 557056 tok | loss 7.5328 | lr 9.997e-04 | 1311.4 ms/update | 6247 tok/s
+[train] 69/4096 | 565248 tok | loss 7.4263 | lr 9.997e-04 | 1317.6 ms/update | 6218 tok/s
+[train] 70/4096 | 573440 tok | loss 7.4102 | lr 9.997e-04 | 1314.7 ms/update | 6231 tok/s
+[train] 71/4096 | 581632 tok | loss 7.1562 | lr 9.997e-04 | 1324.5 ms/update | 6185 tok/s
+[train] 72/4096 | 589824 tok | loss 7.6398 | lr 9.996e-04 | 1321.5 ms/update | 6199 tok/s
+[train] 73/4096 | 598016 tok | loss 7.0875 | lr 9.996e-04 | 1326.7 ms/update | 6175 tok/s
+[train] 74/4096 | 606208 tok | loss 7.2907 | lr 9.996e-04 | 1342.8 ms/update | 6101 tok/s
+[train] 75/4096 | 614400 tok | loss 6.9738 | lr 9.996e-04 | 1336.3 ms/update | 6131 tok/s
+[train] 76/4096 | 622592 tok | loss 7.3795 | lr 9.996e-04 | 1359.7 ms/update | 6025 tok/s
+[train] 77/4096 | 630784 tok | loss 7.5036 | lr 9.996e-04 | 1358.4 ms/update | 6030 tok/s
+[train] 78/4096 | 638976 tok | loss 7.1665 | lr 9.996e-04 | 1361.4 ms/update | 6017 tok/s
+[train] 79/4096 | 647168 tok | loss 7.0688 | lr 9.995e-04 | 1371.8 ms/update | 5972 tok/s
+[train] 80/4096 | 655360 tok | loss 7.3431 | lr 9.995e-04 | 1376.8 ms/update | 5950 tok/s
+[train] 81/4096 | 663552 tok | loss 7.2036 | lr 9.995e-04 | 1387.5 ms/update | 5904 tok/s
+[train] 82/4096 | 671744 tok | loss 6.9590 | lr 9.995e-04 | 1376.6 ms/update | 5951 tok/s
+[train] 83/4096 | 679936 tok | loss 7.4357 | lr 9.995e-04 | 1384.1 ms/update | 5919 tok/s
+[train] 84/4096 | 688128 tok | loss 7.1360 | lr 9.995e-04 | 1378.6 ms/update | 5942 tok/s
+[train] 85/4096 | 696320 tok | loss 7.2329 | lr 9.994e-04 | 1395.4 ms/update | 5871 tok/s
+[train] 86/4096 | 704512 tok | loss 6.9973 | lr 9.994e-04 | 1394.2 ms/update | 5876 tok/s
+[train] 87/4096 | 712704 tok | loss 7.1613 | lr 9.994e-04 | 1405.6 ms/update | 5828 tok/s
+[train] 88/4096 | 720896 tok | loss 7.3260 | lr 9.994e-04 | 1413.1 ms/update | 5797 tok/s
+[train] 89/4096 | 729088 tok | loss 6.8811 | lr 9.994e-04 | 1415.3 ms/update | 5788 tok/s
+[train] 90/4096 | 737280 tok | loss 6.8008 | lr 9.993e-04 | 1422.1 ms/update | 5760 tok/s
+[train] 91/4096 | 745472 tok | loss 6.8439 | lr 9.993e-04 | 1421.5 ms/update | 5763 tok/s
+[train] 92/4096 | 753664 tok | loss 7.0207 | lr 9.993e-04 | 1431.4 ms/update | 5723 tok/s
+[train] 93/4096 | 761856 tok | loss 6.9843 | lr 9.993e-04 | 1438.5 ms/update | 5695 tok/s
+[train] 94/4096 | 770048 tok | loss 7.0605 | lr 9.993e-04 | 1436.2 ms/update | 5704 tok/s
+[train] 95/4096 | 778240 tok | loss 7.0449 | lr 9.992e-04 | 1438.1 ms/update | 5696 tok/s
+[train] 96/4096 | 786432 tok | loss 7.0474 | lr 9.992e-04 | 1431.7 ms/update | 5722 tok/s
+[train] 97/4096 | 794624 tok | loss 6.7423 | lr 9.992e-04 | 1424.3 ms/update | 5751 tok/s
+[train] 98/4096 | 802816 tok | loss 6.9958 | lr 9.992e-04 | 1415.5 ms/update | 5787 tok/s
+[train] 99/4096 | 811008 tok | loss 7.1682 | lr 9.992e-04 | 1411.9 ms/update | 5802 tok/s
+[train] 100/4096 | 819200 tok | loss 7.1653 | lr 9.991e-04 | 1406.2 ms/update | 5826 tok/s
+[train] 101/4096 | 827392 tok | loss 6.7106 | lr 9.991e-04 | 1394.0 ms/update | 5877 tok/s
+[train] 102/4096 | 835584 tok | loss 6.9110 | lr 9.991e-04 | 1400.2 ms/update | 5851 tok/s
+[train] 103/4096 | 843776 tok | loss 6.9550 | lr 9.991e-04 | 1389.1 ms/update | 5897 tok/s
+[train] 104/4096 | 851968 tok | loss 6.7871 | lr 9.991e-04 | 1389.0 ms/update | 5898 tok/s
+[train] 105/4096 | 860160 tok | loss 6.8932 | lr 9.990e-04 | 1372.4 ms/update | 5969 tok/s
+[train] 106/4096 | 868352 tok | loss 6.7346 | lr 9.990e-04 | 1371.6 ms/update | 5973 tok/s
+[train] 107/4096 | 876544 tok | loss 6.5341 | lr 9.990e-04 | 1375.5 ms/update | 5956 tok/s
+[train] 108/4096 | 884736 tok | loss 6.7396 | lr 9.990e-04 | 1372.2 ms/update | 5970 tok/s
+[train] 109/4096 | 892928 tok | loss 6.9204 | lr 9.989e-04 | 1372.8 ms/update | 5967 tok/s
+[train] 110/4096 | 901120 tok | loss 6.5105 | lr 9.989e-04 | 1365.0 ms/update | 6002 tok/s
+[train] 111/4096 | 909312 tok | loss 6.6448 | lr 9.989e-04 | 1355.4 ms/update | 6044 tok/s
+[train] 112/4096 | 917504 tok | loss 6.9937 | lr 9.989e-04 | 1364.6 ms/update | 6003 tok/s
+[train] 113/4096 | 925696 tok | loss 6.9914 | lr 9.988e-04 | 1359.4 ms/update | 6026 tok/s
+[train] 114/4096 | 933888 tok | loss 6.7433 | lr 9.988e-04 | 1354.8 ms/update | 6047 tok/s
+[train] 115/4096 | 942080 tok | loss 6.8719 | lr 9.988e-04 | 1346.1 ms/update | 6086 tok/s
+[train] 116/4096 | 950272 tok | loss 6.5028 | lr 9.988e-04 | 1348.6 ms/update | 6074 tok/s
+[train] 117/4096 | 958464 tok | loss 6.8627 | lr 9.987e-04 | 1352.5 ms/update | 6057 tok/s
+[train] 118/4096 | 966656 tok | loss 6.6505 | lr 9.987e-04 | 1343.5 ms/update | 6097 tok/s
+[train] 119/4096 | 974848 tok | loss 6.6318 | lr 9.987e-04 | 1343.4 ms/update | 6098 tok/s
+[train] 120/4096 | 983040 tok | loss 6.9509 | lr 9.987e-04 | 1340.6 ms/update | 6111 tok/s
+[train] 121/4096 | 991232 tok | loss 6.4357 | lr 9.986e-04 | 1334.3 ms/update | 6139 tok/s
+[train] 122/4096 | 999424 tok | loss 6.4288 | lr 9.986e-04 | 1334.2 ms/update | 6140 tok/s
+[train] 123/4096 | 1007616 tok | loss 6.9267 | lr 9.986e-04 | 1337.5 ms/update | 6125 tok/s
+[train] 124/4096 | 1015808 tok | loss 6.8326 | lr 9.986e-04 | 1336.9 ms/update | 6128 tok/s
+[train] 125/4096 | 1024000 tok | loss 6.6171 | lr 9.985e-04 | 1336.5 ms/update | 6129 tok/s
+[train] 126/4096 | 1032192 tok | loss 6.9287 | lr 9.985e-04 | 1336.6 ms/update | 6129 tok/s
+[train] 127/4096 | 1040384 tok | loss 6.4341 | lr 9.985e-04 | 1346.7 ms/update | 6083 tok/s
+[train] 128/4096 | 1048576 tok | loss 6.5485 | lr 9.984e-04 | 1348.7 ms/update | 6074 tok/s
+[eval] step 128 | val NLL 6.4146 | ppl 610.67 | 65536 tokens
+[ckpt] latest.pt @ step 128
+[pause] staged gate reached at update 128; resume explicitly from checkpoints/latest.pt
+[done] paused_staged | 128/4096 updates | 1048576 tokens | 173.3s

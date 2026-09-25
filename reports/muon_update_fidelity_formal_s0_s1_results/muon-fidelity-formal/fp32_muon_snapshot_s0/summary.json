@@ -1,0 +1,540 @@
+{
+  "algorithm_seed": 2026,
+  "best_validation_nll": 4.684418523684144,
+  "best_validation_update": 3840,
+  "completed_updates": 4096,
+  "compute_precision": "fp32",
+  "cuda_peak_allocated_bytes": 1310691328,
+  "cuda_peak_reserved_bytes": 1635778560,
+  "data_fingerprint": "30152c9b80e86cadbc9215f83794d92011bbbf5b827a2aedb31aa5d50c78fe18",
+  "data_seed": 1337,
+  "divergence": null,
+  "effective_tokens_per_second": 12935.944866593138,
+  "elapsed_seconds": 2697.4257587810002,
+  "eval_elapsed_seconds": 75.14099633799952,
+  "final_validation_nll": 4.684420259669423,
+  "git_commit": "cc6247eaf514878350b9921f033b1d475292e27f",
+  "grad_clip_event_count": 4096,
+  "initial_validation_nll": 10.86343090236187,
+  "max_grad_norm": 9.500247955322266,
+  "mean_update_seconds": 0.6332741894375032,
+  "optimizer_name": "reference_muon",
+  "optimizer_state": {
+    "logical_tensor_bytes": 197041152,
+    "tensors": [
+      {
+        "bytes": 1769472,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1152,
+          384
+        ]
+      },
+      {
+        "bytes": 589824,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          1024
+        ]
+      },
+      {
+        "bytes": 1769472,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1152,
+          384
+        ]
+      },
+      {
+        "bytes": 589824,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          1024
+        ]
+      },
+      {
+        "bytes": 1769472,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1152,
+          384
+        ]
+      },
+      {
+        "bytes": 589824,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          1024
+        ]
+      },
+      {
+        "bytes": 1769472,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1152,
+          384
+        ]
+      },
+      {
+        "bytes": 589824,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          1024
+        ]
+      },
+      {
+        "bytes": 1769472,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1152,
+          384
+        ]
+      },
+      {
+        "bytes": 589824,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          1024
+        ]
+      },
+      {
+        "bytes": 1769472,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1152,
+          384
+        ]
+      },
+      {
+        "bytes": 589824,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          1024,
+          384
+        ]
+      },
+      {
+        "bytes": 1572864,
+        "dtype": "torch.float32",
+        "key": "muon_momentum",
+        "shape": [
+          384,
+          1024
+        ]
+      },
+      {
+        "bytes": 77266944,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          50304,
+          384
+        ]
+      },
+      {
+        "bytes": 77266944,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          50304,
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg",
+        "shape": [
+          384
+        ]
+      },
+      {
+        "bytes": 1536,
+        "dtype": "torch.float32",
+        "key": "exp_avg_sq",
+        "shape": [
+          384
+        ]
+      }
+    ],
+    "unique_storage_bytes": 197041152
+  },
+  "optimizer_state_bytes": 197041152,
+  "optimizer_state_tensor_count": 58,
+  "processed_target_tokens": 33554432,
+  "protocol_id": "slimpajama-hash-split-v1",
+  "reason": null,
+  "recipe_fingerprint": "c577585a6737948fecb5625f2cee93d9710fed7a31c78970a8b426b97d5283ca",
+  "recipe_name": "mini_fp32_reference_muon_fidelity_snapshots_4x_s0",
+  "run_id": "fp32_muon_snapshot_s0",
+  "schedule_total_updates": 4096,
+  "seed": 0,
+  "sequence_length": 256,
+  "status": "completed",
+  "target_tokens": 33554432,
+  "total_elapsed_seconds": 2697.4257587810002,
+  "total_updates": 4096,
+  "train_elapsed_seconds": 2593.8910799360133
+}

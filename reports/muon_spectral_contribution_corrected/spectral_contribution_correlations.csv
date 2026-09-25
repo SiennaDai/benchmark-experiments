@@ -1,0 +1,12 @@
+feature,target,sample_count,pearson,spearman,band
+raw_relative_l2,baseline_update_error,300,-0.28370852614730924,-0.18829853665040722,
+associated_fraction,baseline_update_error,300,0.5133790122940692,0.699174435271503,head
+associated_fraction,baseline_update_error,300,0.9084406657477719,0.8342070467449638,middle
+associated_fraction,baseline_update_error,300,0.5270967920804328,0.11230213669040767,tail
+associated_fraction,baseline_update_error,300,0.9091066942985009,0.8730701452238359,other
+local_sensitivity,baseline_update_error,300,0.5190797363379602,0.3952106134512606,head
+contribution_proxy,baseline_update_error,300,0.44988588951807623,0.4209664551828354,head
+local_sensitivity,baseline_update_error,300,0.6049382186242489,0.4993095478838654,middle
+contribution_proxy,baseline_update_error,300,0.5502557023301687,0.5812766808520095,middle
+local_sensitivity,baseline_update_error,300,0.9507571874751072,0.8641224902498916,tail
+contribution_proxy,baseline_update_error,300,0.6653826856878374,0.7432909254547273,tail

@@ -1,0 +1,429 @@
+[
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.wte.weight",
+    "numel": 19316736,
+    "shape": [
+      50304,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.0.ln_1.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.0.attn.c_attn.weight",
+    "numel": 442368,
+    "shape": [
+      1152,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.0.attn.c_proj.weight",
+    "numel": 147456,
+    "shape": [
+      384,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.0.ln_2.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.0.mlp.w1.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.0.mlp.w2.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.0.mlp.c_proj.weight",
+    "numel": 393216,
+    "shape": [
+      384,
+      1024
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.1.ln_1.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.1.attn.c_attn.weight",
+    "numel": 442368,
+    "shape": [
+      1152,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.1.attn.c_proj.weight",
+    "numel": 147456,
+    "shape": [
+      384,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.1.ln_2.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.1.mlp.w1.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.1.mlp.w2.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.1.mlp.c_proj.weight",
+    "numel": 393216,
+    "shape": [
+      384,
+      1024
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.2.ln_1.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.2.attn.c_attn.weight",
+    "numel": 442368,
+    "shape": [
+      1152,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.2.attn.c_proj.weight",
+    "numel": 147456,
+    "shape": [
+      384,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.2.ln_2.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.2.mlp.w1.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.2.mlp.w2.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.2.mlp.c_proj.weight",
+    "numel": 393216,
+    "shape": [
+      384,
+      1024
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.3.ln_1.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.3.attn.c_attn.weight",
+    "numel": 442368,
+    "shape": [
+      1152,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.3.attn.c_proj.weight",
+    "numel": 147456,
+    "shape": [
+      384,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.3.ln_2.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.3.mlp.w1.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.3.mlp.w2.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.3.mlp.c_proj.weight",
+    "numel": 393216,
+    "shape": [
+      384,
+      1024
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.4.ln_1.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.4.attn.c_attn.weight",
+    "numel": 442368,
+    "shape": [
+      1152,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.4.attn.c_proj.weight",
+    "numel": 147456,
+    "shape": [
+      384,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.4.ln_2.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.4.mlp.w1.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.4.mlp.w2.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.4.mlp.c_proj.weight",
+    "numel": 393216,
+    "shape": [
+      384,
+      1024
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.5.ln_1.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.5.attn.c_attn.weight",
+    "numel": 442368,
+    "shape": [
+      1152,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.5.attn.c_proj.weight",
+    "numel": 147456,
+    "shape": [
+      384,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.h.5.ln_2.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.5.mlp.w1.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.5.mlp.w2.weight",
+    "numel": 393216,
+    "shape": [
+      1024,
+      384
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "muon",
+    "name": "transformer.h.5.mlp.c_proj.weight",
+    "numel": 393216,
+    "shape": [
+      384,
+      1024
+    ]
+  },
+  {
+    "dtype": "torch.float32",
+    "group": "auxiliary_adamw",
+    "name": "transformer.ln_f.weight",
+    "numel": 384,
+    "shape": [
+      384
+    ]
+  }
+]

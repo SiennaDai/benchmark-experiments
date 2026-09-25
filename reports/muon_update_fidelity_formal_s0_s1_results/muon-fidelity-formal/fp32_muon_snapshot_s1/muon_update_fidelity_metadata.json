@@ -1,0 +1,21 @@
+{
+  "enabled": false,
+  "expected_bytes_per_snapshot": 42467328,
+  "expected_total_snapshot_bytes": 212336640,
+  "post_muon_exclusion": "non-2D tensors; ReferenceMuon only orthogonalizes explicitly selected 2D Muon matrices",
+  "quantizers": [
+    "int8-linear-b2048",
+    "int4-linear-b2048",
+    "int4-dynamic-b2048"
+  ],
+  "snapshot_format": "torch.save {format=muon_momentum_snapshot, version=1, metadata, tensors}; FP32 CPU tensors only; no model checkpoint",
+  "snapshot_selection": "full Muon momentum state (no sampling)",
+  "snapshot_updates": [
+    128,
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "stream": null
+}

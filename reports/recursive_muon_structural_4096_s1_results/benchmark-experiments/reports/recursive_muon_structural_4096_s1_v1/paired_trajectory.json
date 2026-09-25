@@ -1,0 +1,54 @@
+{
+  "group_by": [
+    "experiment.seed"
+  ],
+  "treatment_field": "optimizer.recursive_representation",
+  "control_value": "int4",
+  "landmark_updates": [
+    128,
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "pairs": [
+    {
+      "group": [
+        1
+      ],
+      "treatment": "vq_int3",
+      "landmarks": [
+        {
+          "update": 128,
+          "control_validation_nll": 6.441212950274348,
+          "treatment_validation_nll": 6.397437922656536,
+          "paired_delta_validation_nll": -0.04377502761781216
+        },
+        {
+          "update": 512,
+          "control_validation_nll": 5.591307728551328,
+          "treatment_validation_nll": 5.582526474259794,
+          "paired_delta_validation_nll": -0.008781254291534424
+        },
+        {
+          "update": 1024,
+          "control_validation_nll": 5.3705981047824025,
+          "treatment_validation_nll": 5.362903876230121,
+          "paired_delta_validation_nll": -0.0076942285522818565
+        },
+        {
+          "update": 2048,
+          "control_validation_nll": 5.006218456663191,
+          "treatment_validation_nll": 5.007708823308349,
+          "paired_delta_validation_nll": 0.0014903666451573372
+        },
+        {
+          "update": 4096,
+          "control_validation_nll": 4.794689869508147,
+          "treatment_validation_nll": 4.786886706482619,
+          "paired_delta_validation_nll": -0.0078031630255281925
+        }
+      ]
+    }
+  ]
+}

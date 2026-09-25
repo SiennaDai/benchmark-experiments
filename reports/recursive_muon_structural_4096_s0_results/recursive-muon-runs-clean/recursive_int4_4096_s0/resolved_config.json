@@ -1,0 +1,105 @@
+{
+  "checkpoint": {
+    "every_updates": 128,
+    "save_final": true,
+    "save_initial": true
+  },
+  "data": {
+    "allow_repeated_epochs": false,
+    "manifest": "/kaggle/input/datasets/siennadai/lowp-benchmark-slimpajama-4x-v1/manifest.json",
+    "train_split": "train",
+    "validation_split": "validation"
+  },
+  "derived": {
+    "recipe_path": "/kaggle/working/benchmark-experiments/recipes/recursive_muon_structural_int4_4096_s0.json",
+    "schedule_total_updates": 4096,
+    "tokens_per_update": 8192,
+    "total_updates": 4096
+  },
+  "eval": {
+    "attention_backend": "math",
+    "batch_size": 1,
+    "compute": "fp32",
+    "every_updates": 128,
+    "max_target_tokens": 65536
+  },
+  "experiment": {
+    "algorithm_seed": 2026,
+    "data_seed": 1337,
+    "name": "recursive_muon_structural_int4_4096_s0",
+    "protocol_id": "slimpajama-hash-split-v1",
+    "seed": 0
+  },
+  "fingerprint": "d9781e9a40120a433fa25f926216d6f8845066a0e65c515d8b2223cb3f04651e",
+  "logging": {
+    "diagnostics": false,
+    "every_updates": 1,
+    "muon_momentum_snapshot_updates": [],
+    "muon_update_fidelity": false,
+    "wandb": false
+  },
+  "model": {
+    "bias": false,
+    "dropout": 0,
+    "family": "llama",
+    "ffn_dim": 1024,
+    "init_std": 0.02,
+    "multiple_of": 256,
+    "n_embd": 384,
+    "n_head": 6,
+    "n_layer": 6,
+    "rmsnorm_eps": 1e-05,
+    "rope_theta": 10000,
+    "sequence_length": 256,
+    "tie_embeddings": true,
+    "vocab_size": 50304
+  },
+  "optimizer": {
+    "betas": [
+      0.9,
+      0.95
+    ],
+    "eps": 1e-08,
+    "foreach": false,
+    "fused": false,
+    "lr": 0.001,
+    "muon_eps": 1e-07,
+    "muon_momentum": 0.95,
+    "muon_nesterov": true,
+    "muon_ns_coefficients": [
+      3.4445,
+      -4.775,
+      2.0315
+    ],
+    "muon_ns_steps": 5,
+    "name": "recursive_muon",
+    "recursive_block_size": 2048,
+    "recursive_factor_dtype": "bf16",
+    "recursive_rank": 8,
+    "recursive_representation": "int4",
+    "recursive_structure_mode": "exact_svd_oracle",
+    "state_simulation": "none",
+    "weight_decay": 0.1
+  },
+  "precision": {
+    "attention_backend": "auto",
+    "compile": false,
+    "compute": "fp32",
+    "deterministic": true,
+    "gradient_dtype": "fp32",
+    "parameter_dtype": "fp32",
+    "tf32": false
+  },
+  "schedule": {
+    "final_lr_ratio": 0.1,
+    "name": "cosine",
+    "total_updates": 4096,
+    "warmup_updates": 20
+  },
+  "train": {
+    "accumulation_steps": 8,
+    "grad_clip_norm": 1.0,
+    "micro_batch_size": 4,
+    "target_tokens": 33554432
+  }
+}

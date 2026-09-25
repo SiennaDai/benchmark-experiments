@@ -1,0 +1,48 @@
+{
+  "source": "analyze_recursive_muon_error_feedback.py",
+  "run_dirs": {
+    "fp32": "/tmp/recursive-muon-ef-analysis.VwJC7Y/fp32",
+    "alpha0": "/tmp/recursive-muon-ef-analysis.VwJC7Y/alpha0",
+    "alpha05": "/tmp/recursive-muon-ef-analysis.VwJC7Y/alpha05",
+    "alpha1": "/tmp/recursive-muon-ef-analysis.VwJC7Y/alpha1"
+  },
+  "source_commits": {
+    "fp32": "81ed8bbae95b0aea286bae081b901a257d83e8ce",
+    "alpha0": "81ed8bbae95b0aea286bae081b901a257d83e8ce",
+    "alpha05": "66fc77c2f5bca86eaa879eab4858e048c486fa5b",
+    "alpha1": "66fc77c2f5bca86eaa879eab4858e048c486fa5b"
+  },
+  "integrity": {
+    "status": "compatible",
+    "shared_fields": [
+      "seed",
+      "data_seed",
+      "algorithm_seed",
+      "protocol_id",
+      "data_fingerprint",
+      "schedule_total_updates",
+      "total_updates",
+      "target_tokens",
+      "sequence_length",
+      "compute_precision"
+    ],
+    "paired_train_events": 512,
+    "landmarks": [
+      1,
+      8,
+      32,
+      128,
+      512
+    ],
+    "batch_identity": "same seed/data seed, deterministic protocol, update/token/LR event alignment; batch IDs are not persisted",
+    "vq_codebook_keys": {
+      "alpha0": "s0_k8_w64_t8_v1200",
+      "alpha05": "s0_k8_w64_t8_v1200",
+      "alpha1": "s0_k8_w64_t8_v1200"
+    },
+    "vq_codebook_paths": [
+      "reports/muon_vector_int3_robustness/calibration_codebooks.pt"
+    ],
+    "resolved_config_protocol_match": true
+  }
+}
