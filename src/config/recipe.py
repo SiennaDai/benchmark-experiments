@@ -28,7 +28,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "recursive_error_feedback_alpha", "recursive_error_feedback_mode", "recursive_error_feedback_interval", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key", "recursive_param_plan", "recursive_svd_mode", "recursive_svd_power_iters", "recursive_svd_oversample"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates", "muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "recursive_error_feedback_alpha", "recursive_error_feedback_mode", "recursive_error_feedback_interval", "recursive_error_feedback_bits", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key", "recursive_param_plan", "recursive_svd_mode", "recursive_svd_power_iters", "recursive_svd_oversample"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates", "muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -196,6 +196,13 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
                 raise RecipeError("periodic error feedback requires recursive_error_feedback_alpha=0")
         elif interval is not None:
             raise RecipeError("recursive_error_feedback_interval is only valid in periodic mode")
+        feedback_bits = o.get("recursive_error_feedback_bits", 0)
+        if feedback_bits not in (0, 1, 2):
+            raise RecipeError("optimizer.recursive_error_feedback_bits must be 0, 1 or 2")
+        if feedback_bits and (feedback_mode != "fractional" or alpha <= 0):
+            raise RecipeError("compressed error feedback requires fractional mode with alpha>0")
+        if feedback_bits and o.get("recursive_representation", "vq_int3") != "vq_int3":
+            raise RecipeError("compressed error feedback requires vq_int3")
         if feedback_mode == "none" and alpha != 0:
             raise RecipeError("recursive_error_feedback_mode=none requires alpha=0")
         if feedback_mode == "fractional" and alpha <= 0:

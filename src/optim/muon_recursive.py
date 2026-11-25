@@ -67,6 +67,19 @@ def _block_stat_scales(flat: torch.Tensor, block_size: int, *, percentile: float
     return torch.cat(pieces) if pieces else flat.new_empty((0,))
 
 
+def _block_mean_abs(flat: torch.Tensor, block_size: int) -> torch.Tensor:
+    """Per-block mean |value|; the MSE-optimal 1-bit reconstruction amplitude."""
+    if flat.ndim != 1 or block_size <= 0:
+        raise ValueError("flat input and positive block_size are required")
+    full = (flat.numel() // block_size) * block_size
+    pieces = []
+    if full:
+        pieces.append(flat[:full].reshape(-1, block_size).abs().mean(dim=1))
+    if full != flat.numel():
+        pieces.append(flat[full:].abs().mean().reshape(1))
+    return torch.cat(pieces) if pieces else flat.new_empty((0,))
+
+
 def _repeat_block_scales(scales: torch.Tensor, count: int, block_size: int) -> torch.Tensor:
     """Expand one scalar scale per block to one scalar per value."""
     if count == 0:
@@ -101,8 +114,8 @@ def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) 
     device-side packing has completed, rather than iterating over every pair in
     Python.
     """
-    if bits not in (4, 5, 6, 8, 10, 12):
-        raise ValueError("the recursive prototype packs 4/5/6/8/10/12-bit indices")
+    if bits not in (1, 2, 4, 5, 6, 8, 10, 12):
+        raise ValueError("the recursive prototype packs 1/2/4/5/6/8/10/12-bit indices")
     values = indices.detach().to(dtype=torch.int64).reshape(-1)
     if bool((values < 0).any()) or bool((values >= (1 << bits)).any()):
         raise ValueError("index is outside the declared codebook")
@@ -167,8 +180,8 @@ def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) 
 
 def unpack_indices(packed: torch.Tensor, count: int, bits: int = 6) -> torch.Tensor:
     """Inverse of :func:`pack_indices`; unused trailing bits are ignored."""
-    if bits not in (4, 5, 6, 8, 10, 12) or count < 0:
-        raise ValueError("the recursive prototype uses nonnegative count and 4/5/6/8/10/12-bit indices")
+    if bits not in (1, 2, 4, 5, 6, 8, 10, 12) or count < 0:
+        raise ValueError("the recursive prototype uses nonnegative count and 1/2/4/5/6/8/10/12-bit indices")
     raw = packed.detach().to(dtype=torch.int64).reshape(-1)
     if raw.numel() != math.ceil(count * bits / 8):
         raise ValueError("packed byte count does not match index count")
@@ -255,6 +268,51 @@ class StructuralVQState:
         return cls(value["u"], value["singular_values"], value["vh"], value["scales"],
                    value["indices"], int(value["pair_count"]), tuple(value["shape"]),
                    str(value["codebook_key"]))
+
+
+def encode_compressed_error(error: torch.Tensor, *, block_size: int = 2048,
+                            bits: int = 1) -> CompressedErrorState:
+    """Compress the persistence residual for error feedback.
+
+    ``bits=1`` keeps one sign per scalar plus a per-block mean-absolute
+    amplitude (the MSE-optimal scale for a fixed sign pattern); ``bits=2`` uses
+    four levels (+-0.5, +-1.5 in units of that amplitude).
+    """
+    if bits not in (1, 2):
+        raise ValueError("error feedback supports 1 or 2 bits")
+    value = error.detach().float()
+    if value.ndim != 2:
+        raise ValueError("error feedback requires a 2-D tensor")
+    flat = value.reshape(-1)
+    scales = _block_mean_abs(flat, block_size)
+    amp = _repeat_block_scales(scales, flat.numel(), block_size)
+    safe = amp.clamp_min(torch.finfo(torch.float32).tiny)
+    unit = flat / safe
+    if bits == 1:
+        codes = (flat < 0).to(torch.long)
+    else:
+        codes = (flat < 0).to(torch.long) * 2 + (unit.abs() >= 1).to(torch.long)
+    return CompressedErrorState(scales.float(), pack_indices(codes, bits),
+                                int(flat.numel()), tuple(value.shape), bits)
+
+
+def decode_compressed_error(state: CompressedErrorState, *, device=None,
+                            block_size: int = 2048) -> torch.Tensor:
+    device = device or torch.device("cpu")
+    state = state.to(device)
+    codes = unpack_indices(state.codes, state.count, state.bits).float()
+    amp = _repeat_block_scales(state.scales, state.count, block_size)
+    if state.bits == 1:
+        values = (1.0 - 2.0 * codes) * amp
+    else:
+        sign = torch.where(codes < 2, 1.0, -1.0)
+        mag = torch.where(torch.remainder(codes, 2) > 0, 1.5, 0.5)
+        values = sign * mag * amp
+    return values.reshape(state.shape)
+
+
+def compressed_error_bits(state: CompressedErrorState) -> int:
+    return int(state.scales.numel() * 32 + state.codes.numel() * 8)
 
 
 class StructuralVQCodec:
@@ -407,6 +465,30 @@ class SplitVQState:
     def from_state_dict(cls, value: dict) -> "SplitVQState":
         return cls([StructuralVQState.from_state_dict(part) for part in value["parts"]],
                    tuple(value["shape"]))
+
+
+@dataclass
+class CompressedErrorState:
+    """1-2 bit error feedback: per-block mean-absolute scale plus sign/level bits."""
+
+    scales: torch.Tensor
+    codes: torch.Tensor
+    count: int
+    shape: tuple[int, int]
+    bits: int = 1
+
+    def to(self, device: torch.device) -> "CompressedErrorState":
+        return CompressedErrorState(self.scales.to(device), self.codes.to(device),
+                                    self.count, self.shape, self.bits)
+
+    def state_dict(self) -> dict:
+        return {"scales": self.scales.cpu(), "codes": self.codes.cpu(),
+                "count": self.count, "shape": tuple(self.shape), "bits": self.bits}
+
+    @classmethod
+    def from_state_dict(cls, value: dict) -> "CompressedErrorState":
+        return cls(value["scales"], value["codes"], int(value["count"]),
+                   tuple(value["shape"]), int(value.get("bits", 1)))
 
 
 class SplitVQCodec:
@@ -622,7 +704,8 @@ class RecursiveMuon(torch.optim.Optimizer):
                  muon_ns_coefficients=(3.4445, -4.7750, 2.0315), muon_eps=1e-7,
                  recursive_error_feedback_alpha=0.0,
                  recursive_error_feedback_mode=None,
-                 recursive_error_feedback_interval=None):
+                 recursive_error_feedback_interval=None,
+                 recursive_error_feedback_bits=0):
         if isinstance(recursive_error_feedback_alpha, bool):
             raise ValueError("recursive_error_feedback_alpha must be finite and nonnegative")
         alpha = float(recursive_error_feedback_alpha)
@@ -642,7 +725,13 @@ class RecursiveMuon(torch.optim.Optimizer):
             raise ValueError("none feedback mode requires alpha=0")
         if mode == "fractional" and alpha <= 0:
             raise ValueError("fractional feedback mode requires alpha>0")
+        if recursive_error_feedback_bits not in (0, 1, 2):
+            raise ValueError("recursive_error_feedback_bits must be 0, 1 or 2")
+        if recursive_error_feedback_bits and (mode != "fractional" or alpha <= 0):
+            raise ValueError("compressed error feedback requires fractional mode with alpha>0")
+
         self.codecs = codecs
+        self.recursive_error_feedback_bits = int(recursive_error_feedback_bits)
         self.recursive_error_feedback_alpha = alpha
         self.recursive_error_feedback_mode = mode
         self.recursive_error_feedback_interval = recursive_error_feedback_interval
@@ -654,7 +743,8 @@ class RecursiveMuon(torch.optim.Optimizer):
                         muon_ns_steps=muon_ns_steps, muon_ns_coefficients=tuple(muon_ns_coefficients),
                         muon_eps=muon_eps, recursive_error_feedback_alpha=alpha,
                         recursive_error_feedback_mode=mode,
-                        recursive_error_feedback_interval=recursive_error_feedback_interval)
+                        recursive_error_feedback_interval=recursive_error_feedback_interval,
+                        recursive_error_feedback_bits=int(recursive_error_feedback_bits))
         super().__init__(params, defaults)
 
     def set_mechanism_observer(self, observer):
@@ -676,6 +766,8 @@ class RecursiveMuon(torch.optim.Optimizer):
             return {"_recursive_state_type": "split_vq",
                     "parts": [RecursiveMuon._serialize_encoded(part) for part in value.parts],
                     "shape": tuple(value.shape)}
+        if isinstance(value, CompressedErrorState):
+            return {"_recursive_state_type": "compressed_error", **value.state_dict()}
         if isinstance(value, StructuralINT4State):
             return {"_recursive_state_type": "int4", "u": value.u.cpu(),
                     "singular_values": value.singular_values.cpu(), "vh": value.vh.cpu(),
@@ -694,6 +786,9 @@ class RecursiveMuon(torch.optim.Optimizer):
         if kind == "split_vq":
             return SplitVQState([RecursiveMuon._deserialize_encoded(part)
                                  for part in value["parts"]], tuple(value["shape"]))
+        if kind == "compressed_error":
+            payload = {key: item for key, item in value.items() if key != "_recursive_state_type"}
+            return CompressedErrorState.from_state_dict(payload)
         if kind == "int4":
             return StructuralINT4State(value["u"], value["singular_values"], value["vh"],
                                        value["scales"], value["codes"], int(value["count"]),
@@ -723,6 +818,9 @@ class RecursiveMuon(torch.optim.Optimizer):
             encoded = state.get("compressed_momentum")
             if isinstance(encoded, (StructuralVQState, StructuralINT4State, SplitVQState)):
                 state["compressed_momentum"] = encoded.to(parameter.device)
+            error_state = state.get("compressed_error")
+            if isinstance(error_state, CompressedErrorState):
+                state["compressed_error"] = error_state.to(parameter.device)
             error = state.get("momentum_error")
             if torch.is_tensor(error):
                 state["momentum_error"] = error.to(device=parameter.device, dtype=torch.float32)
@@ -749,9 +847,17 @@ class RecursiveMuon(torch.optim.Optimizer):
                     compressed = state.get("compressed_momentum")
                     previous_decoded = torch.zeros_like(p, dtype=torch.float32) if compressed is None else codec.decode(compressed, device=p.device)
                     mu = group["muon_momentum"]
-                    previous_error = state.get("momentum_error")
-                    if previous_error is None:
-                        previous_error = torch.zeros_like(p, dtype=torch.float32)
+                    fb_bits = int(group.get("recursive_error_feedback_bits",
+                                            self.recursive_error_feedback_bits))
+                    if fb_bits:
+                        error_state = state.get("compressed_error")
+                        previous_error = (decode_compressed_error(error_state, device=p.device)
+                                          if isinstance(error_state, CompressedErrorState)
+                                          else torch.zeros_like(p, dtype=torch.float32))
+                    else:
+                        previous_error = state.get("momentum_error")
+                        if previous_error is None:
+                            previous_error = torch.zeros_like(p, dtype=torch.float32)
                     mode = group.get("recursive_error_feedback_mode", self.recursive_error_feedback_mode)
                     interval = group.get("recursive_error_feedback_interval", self.recursive_error_feedback_interval)
                     update = self._training_update if self._training_update is not None else self._mechanism_update
@@ -790,7 +896,12 @@ class RecursiveMuon(torch.optim.Optimizer):
                     p.copy_(updated.to(p.dtype))
                     state["compressed_momentum"] = encoded
                     if alpha:
-                        state["momentum_error"] = current_error
+                        if fb_bits:
+                            state["compressed_error"] = encode_compressed_error(
+                                current_error, bits=fb_bits)
+                            state.pop("momentum_error", None)
+                        else:
+                            state["momentum_error"] = current_error
                     if mode == "periodic":
                         state["momentum_error_accumulator"] = next_accumulator
                 else:
@@ -810,9 +921,15 @@ class RecursiveMuon(torch.optim.Optimizer):
             encoded = state.get("compressed_momentum")
             if encoded is not None:
                 error = state.get("momentum_error")
+                error_state = state.get("compressed_error")
+                codec = self.codecs[id(p)]
+                if isinstance(error_state, CompressedErrorState):
+                    error_bits = compressed_error_bits(error_state)
+                else:
+                    error_bits = int(error.numel() * error.element_size() * 8) if torch.is_tensor(error) else 0
                 rows.append({"parameter_id": id(p), "shape": list(encoded.shape),
-                             "storage_bits": self.codecs[id(p)].storage_bits(encoded),
-                             "error_buffer_bits": int(error.numel() * error.element_size() * 8) if torch.is_tensor(error) else 0,
+                             "storage_bits": codec.storage_bits(encoded),
+                             "error_buffer_bits": error_bits,
                              "periodic_accumulator_bits": int(state["momentum_error_accumulator"].numel() * state["momentum_error_accumulator"].element_size() * 8) if torch.is_tensor(state.get("momentum_error_accumulator")) else 0,
                              "has_fp32_momentum": False, "has_fp32_error_buffer": torch.is_tensor(error),
                              "has_fp32_periodic_accumulator": torch.is_tensor(state.get("momentum_error_accumulator"))})

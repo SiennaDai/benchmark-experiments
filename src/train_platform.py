@@ -204,7 +204,16 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
             quantization_block_size=cfg["optimizer"].get("state_quantization_block_size", 2048))
         error_feedback_alpha = cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0)
         error_feedback_mode = cfg["optimizer"].get("recursive_error_feedback_mode", "fractional" if error_feedback_alpha > 0 else "none")
-        if error_feedback_alpha > 0:
+        error_feedback_bits = int(cfg["optimizer"].get("recursive_error_feedback_bits", 0))
+        if error_feedback_alpha > 0 and error_feedback_bits:
+            state_policy["state_groups"]["muon"]["states_left_fp32"] = []
+            state_policy["persistent_storage_in_platform"] = (
+                f"compressed_state_plus_{error_feedback_bits}bit_error_residual")
+            state_policy["actual_optimizer_memory_reduction"] = True
+            state_policy["recursive_error_feedback"] = {
+                "alpha": error_feedback_alpha, "bits": error_feedback_bits,
+                "buffer": "sign/level bits + per-2048 mean-absolute scale; no FP32 buffer"}
+        elif error_feedback_alpha > 0:
             state_policy["state_groups"]["muon"]["states_left_fp32"] = ["momentum_error"]
             state_policy["persistent_storage_in_platform"] = "compressed_state_plus_fp32_error_residual"
             state_policy["actual_optimizer_memory_reduction"] = False
@@ -294,6 +303,7 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
                       "error_feedback_alpha": cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0),
                       "error_feedback_mode": cfg["optimizer"].get("recursive_error_feedback_mode", "fractional" if cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0) > 0 else "none"),
                       "error_feedback_interval": cfg["optimizer"].get("recursive_error_feedback_interval"),
+                      "error_feedback_bits": cfg["optimizer"].get("recursive_error_feedback_bits", 0),
                       "recursive_codebook_key": cfg["optimizer"].get("recursive_codebook_key"),
                       "raw_updates": list(map(int, mechanism_raw_updates)),
                       "scalar_updates": list(map(int, mechanism_scalar_updates))})
@@ -303,6 +313,7 @@ def run(cfg: dict, run_dir: Path, resume: Path | None = None, max_wall_seconds: 
                     "error_feedback_alpha": cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0),
                     "error_feedback_mode": cfg["optimizer"].get("recursive_error_feedback_mode", "fractional" if cfg["optimizer"].get("recursive_error_feedback_alpha", 0.0) > 0 else "none"),
                     "error_feedback_interval": cfg["optimizer"].get("recursive_error_feedback_interval"),
+                    "error_feedback_bits": cfg["optimizer"].get("recursive_error_feedback_bits", 0),
                     "error_buffer_snapshot_policy": "derive exact e_t from momentum_candidate - momentum_persisted_decoded; no duplicate full-size error tensor; accumulator scalar diagnostics only"})
     started = time.monotonic(); status, reason = "completed", None
     divergence = None; last_finite_train_metric = None; active_update = completed; attempted_processed = processed

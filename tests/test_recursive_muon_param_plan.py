@@ -7,8 +7,9 @@ sys.path.insert(0, "src")
 
 from config.recipe import RecipeError, _validate_recursive_param_plan  # noqa: E402
 from optim.muon_recursive import (  # noqa: E402
-    RecursiveMuon, SplitVQCodec, SplitVQState, StructuralVQCodec,
-    build_recursive_codecs, pack_indices, unpack_indices,
+    CompressedErrorState, RecursiveMuon, SplitVQCodec, SplitVQState, StructuralVQCodec,
+    build_recursive_codecs, compressed_error_bits, decode_compressed_error,
+    encode_compressed_error, pack_indices, unpack_indices,
 )
 
 
@@ -170,6 +171,52 @@ def test_randomized_svd_zero_rank_is_allowed():
     codec = StructuralVQCodec(codebook(32), rank=0, block_size=256, svd_mode="randomized")
     m = torch.randn(16, 16)
     assert codec.decode(codec.encode(m)).shape == m.shape
+
+
+def test_compressed_error_roundtrip_and_bits():
+    e = torch.randn(64, 64) * 0.1
+    state = encode_compressed_error(e, block_size=512, bits=1)
+    assert isinstance(state, CompressedErrorState)
+    assert state.codes.numel() == (e.numel() + 7) // 8
+    assert compressed_error_bits(state) == state.scales.numel() * 32 + state.codes.numel() * 8
+    dec = decode_compressed_error(state, block_size=512)
+    agree = (torch.sign(dec) == torch.sign(e)).float().mean()
+    assert float(agree) > 0.999
+    assert abs(float(dec.abs().mean()) - float(e.abs().mean())) < 0.1 * float(e.abs().mean())
+
+
+def test_compressed_error_two_bit_and_serialization():
+    e = torch.randn(32, 32) * 0.05
+    state = encode_compressed_error(e, block_size=256, bits=2)
+    back = RecursiveMuon._deserialize_encoded(RecursiveMuon._serialize_encoded(state))
+    assert isinstance(back, CompressedErrorState) and back.bits == 2
+    assert torch.equal(decode_compressed_error(back, block_size=256),
+                       decode_compressed_error(state, block_size=256))
+
+
+def test_optimizer_compressed_error_feedback(tmp_path):
+    path = tmp_path / "books.pt"
+    torch.save({"codebooks": {"w32": codebook(32)}}, path)
+    cfg = {"recursive_codebook_path": str(path), "recursive_codebook_key": "w32",
+           "recursive_rank": 2, "recursive_block_size": 256,
+           "recursive_param_plan": [{"pattern": "transformer.h.*", "rank": 2}]}
+    model = _FakeModel()
+    codecs = build_recursive_codecs(model, cfg, tmp_path)
+    params = [model.c_attn, model.c_proj, model.w1]
+    opt = RecursiveMuon([{"params": params, "optimizer_group": "muon", "lr": 1e-3,
+                          "weight_decay": 0.1, "muon_momentum": 0.95, "muon_nesterov": True,
+                          "muon_ns_steps": 5, "muon_ns_coefficients": [3.4445, -4.775, 2.0315],
+                          "muon_eps": 1e-7}], codecs, lr=1e-3,
+                        recursive_error_feedback_alpha=1.0, recursive_error_feedback_bits=1)
+    for _ in range(2):
+        for p in params:
+            p.grad = torch.randn_like(p) * 1e-3
+        opt.step()
+    states = [st for st in opt.state.values() if isinstance(st.get("compressed_error"), CompressedErrorState)]
+    assert len(states) == len(params)
+    summary = opt.recursive_state_summary()
+    assert summary["error_buffer_bits"] > 0
+    assert summary["error_buffer_bits"] < 2 * summary["compressed_muon_state_bits"]
 
 
 def test_param_plan_validation_rejects_bad_entries():
