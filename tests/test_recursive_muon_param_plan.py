@@ -62,6 +62,20 @@ def test_split_codec_round_trips_and_serializes():
     assert split.storage_bits(state) > 0
 
 
+def test_four_dimensional_codebook_round_trips():
+    g = torch.Generator().manual_seed(7)
+    book = torch.randn((1024, 4), generator=g) * .2
+    book[0] = 0
+    codec = StructuralVQCodec(book, rank=4, block_size=256)
+    assert codec.group_size == 4 and codec.index_bits == 10
+    m = torch.randn(32, 32)
+    state = codec.encode(m)
+    assert state.indices.numel() == (state.pair_count * 10 + 7) // 8
+    out = codec.decode(state)
+    assert out.shape == m.shape and torch.isfinite(out).all()
+    assert float((out - m).norm() / m.norm()) < 0.6  # unfitted codebook: shape/packing only
+
+
 def test_column_pairing_round_trips_non_square():
     for shape in ((32, 64), (64, 32)):
         m = torch.randn(*shape)

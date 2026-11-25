@@ -101,8 +101,8 @@ def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) 
     device-side packing has completed, rather than iterating over every pair in
     Python.
     """
-    if bits not in (4, 5, 6):
-        raise ValueError("the recursive prototype packs 4-, 5- or 6-bit indices")
+    if bits not in (4, 5, 6, 8, 10, 12):
+        raise ValueError("the recursive prototype packs 4/5/6/8/10/12-bit indices")
     values = indices.detach().to(dtype=torch.int64).reshape(-1)
     if bool((values < 0).any()) or bool((values >= (1 << bits)).any()):
         raise ValueError("index is outside the declared codebook")
@@ -167,8 +167,8 @@ def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) 
 
 def unpack_indices(packed: torch.Tensor, count: int, bits: int = 6) -> torch.Tensor:
     """Inverse of :func:`pack_indices`; unused trailing bits are ignored."""
-    if bits not in (4, 5, 6) or count < 0:
-        raise ValueError("the recursive prototype uses nonnegative count and 4-, 5- or 6-bit indices")
+    if bits not in (4, 5, 6, 8, 10, 12) or count < 0:
+        raise ValueError("the recursive prototype uses nonnegative count and 4/5/6/8/10/12-bit indices")
     raw = packed.detach().to(dtype=torch.int64).reshape(-1)
     if raw.numel() != math.ceil(count * bits / 8):
         raise ValueError("packed byte count does not match index count")
@@ -266,8 +266,10 @@ class StructuralVQCodec:
                  svd_oversample: int = 4, svd_seed: int = 20260101,
                  pair_axis: str = "row"):
         codebook = codebook.detach().float().cpu()
-        if codebook.ndim != 2 or codebook.shape[1] != 2 or codebook.shape[0] not in (32, 64) or not torch.isfinite(codebook).all():
-            raise ValueError("recursive prototype requires a finite 32x2 or 64x2 codebook")
+        if (codebook.ndim != 2 or codebook.shape[1] not in (2, 4)
+                or codebook.shape[0] < 2 or (codebook.shape[0] & (codebook.shape[0] - 1))
+                or not torch.isfinite(codebook).all()):
+            raise ValueError("recursive prototype requires a finite (2**b x 2) or (2**b x 4) codebook")
         if not bool((codebook.square().sum(dim=1) == 0).any()):
             raise ValueError("codebook must contain an exact zero codeword")
         if rank < 0 or block_size <= 0:
@@ -279,7 +281,10 @@ class StructuralVQCodec:
         if pair_axis not in {"row", "col"}:
             raise ValueError("pair_axis must be 'row' or 'col'")
         self.codebook = codebook
-        self.index_bits = 6 if codebook.shape[0] == 64 else 5
+        self.group_size = int(codebook.shape[1])
+        self.index_bits = int(round(math.log2(codebook.shape[0])))
+        if block_size % self.group_size:
+            raise ValueError("block_size must be divisible by the group size")
         self.rank = int(rank)
         self.block_size = int(block_size)
         self.codebook_key = str(codebook_key)
@@ -333,24 +338,25 @@ class StructuralVQCodec:
         uk, sk, vhk = self._top_factors(value, k)
         low = (uk * sk) @ vhk if k else torch.zeros_like(value)
         residual = value - low
-        if residual.numel() % 2:
-            raise ValueError("recursive contiguous VQ requires even-sized matrices")
+        if residual.numel() % self.group_size:
+            raise ValueError("recursive grouped VQ requires a size divisible by the group size")
         # All current formal Muon matrices are even-sized.  Avoid the generic
         # offline pairing helper here: it builds Python lists/sets over every
         # scalar and is not part of the recursive representation semantics.
         work = (residual if self.pair_axis == "row"
                 else residual.transpose(0, 1).contiguous())
-        pairs = work.reshape(-1, 2)
+        groups = work.reshape(-1, self.group_size)
         scales = _block_stat_scales(work.reshape(-1), self.block_size, percentile=.98)
-        pair_scales = _repeat_block_scales(scales, pairs.shape[0], self.block_size // 2)
+        pair_scales = _repeat_block_scales(scales, groups.shape[0],
+                                           self.block_size // self.group_size)
         safe_scales = pair_scales.clamp_min(torch.finfo(torch.float32).tiny)
-        normalized = (pairs / safe_scales[:, None]).clamp(-1, 1)
+        normalized = (groups / safe_scales[:, None]).clamp(-1, 1)
         codebook = self._codebook_on(value.device)
-        indices = torch.empty((pairs.shape[0],), dtype=torch.long, device=value.device)
+        indices = torch.empty((groups.shape[0],), dtype=torch.long, device=value.device)
         # A small number of large chunks bounds temporary memory without
         # reintroducing a block-sized Python loop or GPU synchronization.
-        for start in range(0, pairs.shape[0], 65536):
-            end = min(start + 65536, pairs.shape[0])
+        for start in range(0, groups.shape[0], 65536):
+            end = min(start + 65536, groups.shape[0])
             indices[start:end] = torch.cdist(normalized[start:end], codebook).argmin(dim=1)
         indices = torch.where(pair_scales > 0, indices, torch.zeros_like(indices))
         return StructuralVQState(uk.to(torch.bfloat16), sk.to(torch.bfloat16),
@@ -369,7 +375,8 @@ class StructuralVQCodec:
         low = (u * s) @ vh if s.numel() else torch.zeros(state.shape, device=device)
         indices = unpack_indices(state.indices, state.pair_count, self.index_bits)
         scales = state.scales.to(device=device, dtype=torch.float32)
-        pair_scales = _repeat_block_scales(scales, state.pair_count, self.block_size // 2)
+        pair_scales = _repeat_block_scales(scales, state.pair_count,
+                                           self.block_size // self.group_size)
         pairs = self._codebook_on(device)[indices] * pair_scales[:, None]
         if self.pair_axis == "row":
             return low + pairs.reshape(state.shape)
