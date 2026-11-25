@@ -56,8 +56,8 @@ def _positive_int(value: Any, path: str) -> None:
 def _validate_recursive_param_plan(plan: Any) -> None:
     if not isinstance(plan, list) or not plan:
         raise RecipeError("optimizer.recursive_param_plan must be a non-empty array")
-    allowed = {"pattern", "rank", "block_size", "codebook_key", "splits"}
-    split_allowed = {"rows", "rank", "block_size", "codebook_key"}
+    allowed = {"pattern", "rank", "block_size", "codebook_key", "splits", "pair_axis"}
+    split_allowed = {"rows", "rank", "block_size", "codebook_key", "pair_axis"}
     for index, entry in enumerate(plan):
         where = f"optimizer.recursive_param_plan[{index}]"
         if not isinstance(entry, dict):
@@ -72,6 +72,8 @@ def _validate_recursive_param_plan(plan: Any) -> None:
             raise RecipeError(f"{where} requires exactly one of rank or splits")
         if "block_size" in entry:
             _positive_int(entry["block_size"], f"{where}.block_size")
+        if "pair_axis" in entry and entry["pair_axis"] not in {"row", "col"}:
+            raise RecipeError(f"{where}.pair_axis must be 'row' or 'col'")
         if "codebook_key" in entry:
             _require_type(entry["codebook_key"], str, f"{where}.codebook_key")
         if has_rank:
@@ -98,6 +100,8 @@ def _validate_recursive_param_plan(plan: Any) -> None:
             _positive_int(split["rank"], f"{s_where}.rank")
             if "block_size" in split:
                 _positive_int(split["block_size"], f"{s_where}.block_size")
+            if "pair_axis" in split and split["pair_axis"] not in {"row", "col"}:
+                raise RecipeError(f"{s_where}.pair_axis must be 'row' or 'col'")
             if "codebook_key" in split:
                 _require_type(split["codebook_key"], str, f"{s_where}.codebook_key")
 

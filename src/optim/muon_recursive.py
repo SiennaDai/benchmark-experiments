@@ -263,7 +263,8 @@ class StructuralVQCodec:
     def __init__(self, codebook: torch.Tensor, *, rank: int = 8,
                  block_size: int = 2048, codebook_key: str = "s0_k8_w64_t8_v1200",
                  svd_mode: str = "exact", svd_power_iters: int = 2,
-                 svd_oversample: int = 4, svd_seed: int = 20260101):
+                 svd_oversample: int = 4, svd_seed: int = 20260101,
+                 pair_axis: str = "row"):
         codebook = codebook.detach().float().cpu()
         if codebook.ndim != 2 or codebook.shape[1] != 2 or codebook.shape[0] not in (32, 64) or not torch.isfinite(codebook).all():
             raise ValueError("recursive prototype requires a finite 32x2 or 64x2 codebook")
@@ -275,6 +276,8 @@ class StructuralVQCodec:
             raise ValueError("svd_mode must be 'exact' or 'randomized'")
         if svd_power_iters < 0 or svd_oversample < 0:
             raise ValueError("svd power iterations and oversampling must be nonnegative")
+        if pair_axis not in {"row", "col"}:
+            raise ValueError("pair_axis must be 'row' or 'col'")
         self.codebook = codebook
         self.index_bits = 6 if codebook.shape[0] == 64 else 5
         self.rank = int(rank)
@@ -284,6 +287,7 @@ class StructuralVQCodec:
         self.svd_power_iters = int(svd_power_iters)
         self.svd_oversample = int(svd_oversample)
         self.svd_seed = int(svd_seed)
+        self.pair_axis = str(pair_axis)
         self._codebook_cache: dict[tuple[str, int | None], torch.Tensor] = {}
 
     def _top_factors(self, value: torch.Tensor, k: int):
@@ -334,8 +338,10 @@ class StructuralVQCodec:
         # All current formal Muon matrices are even-sized.  Avoid the generic
         # offline pairing helper here: it builds Python lists/sets over every
         # scalar and is not part of the recursive representation semantics.
-        pairs = residual.reshape(-1, 2)
-        scales = _block_stat_scales(residual.reshape(-1), self.block_size, percentile=.98)
+        work = (residual if self.pair_axis == "row"
+                else residual.transpose(0, 1).contiguous())
+        pairs = work.reshape(-1, 2)
+        scales = _block_stat_scales(work.reshape(-1), self.block_size, percentile=.98)
         pair_scales = _repeat_block_scales(scales, pairs.shape[0], self.block_size // 2)
         safe_scales = pair_scales.clamp_min(torch.finfo(torch.float32).tiny)
         normalized = (pairs / safe_scales[:, None]).clamp(-1, 1)
@@ -365,7 +371,9 @@ class StructuralVQCodec:
         scales = state.scales.to(device=device, dtype=torch.float32)
         pair_scales = _repeat_block_scales(scales, state.pair_count, self.block_size // 2)
         pairs = self._codebook_on(device)[indices] * pair_scales[:, None]
-        return low + pairs.reshape(state.shape)
+        if self.pair_axis == "row":
+            return low + pairs.reshape(state.shape)
+        return low + pairs.reshape(state.shape[1], state.shape[0]).transpose(0, 1)
 
     def storage_bits(self, state: StructuralVQState) -> int:
         """Exact serialized payload bits, excluding Python/container overhead."""
@@ -574,15 +582,18 @@ def build_recursive_codecs(model, cfg: dict, root: Path) -> dict[int, object]:
                 blocks.append((start, end, StructuralVQCodec(
                     codebook_for(key), rank=int(split["rank"]),
                     block_size=int(split.get("block_size", block)),
-                    codebook_key=key or "", **svd_kwargs)))
+                    codebook_key=key or "",
+                    pair_axis=split.get("pair_axis", "row"), **svd_kwargs)))
             codecs[id(parameter)] = SplitVQCodec(blocks, shape=tuple(parameter.shape))
         else:
             local_rank = int(entry["rank"]) if entry is not None and "rank" in entry else rank
             local_block = int(entry.get("block_size", block)) if entry is not None else block
             key = entry.get("codebook_key", default_key) if entry is not None else default_key
-            codecs[id(parameter)] = StructuralVQCodec(codebook_for(key), rank=local_rank,
-                                                      block_size=local_block,
-                                                      codebook_key=key or "", **svd_kwargs)
+            codecs[id(parameter)] = StructuralVQCodec(
+                codebook_for(key), rank=local_rank, block_size=local_block,
+                codebook_key=key or "",
+                pair_axis=(entry.get("pair_axis", "row") if entry is not None else "row"),
+                **svd_kwargs)
     if not codecs:
         raise ValueError("recursive_muon found no eligible 2-D Muon parameters")
     return codecs

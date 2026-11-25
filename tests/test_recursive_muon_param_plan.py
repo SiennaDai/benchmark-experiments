@@ -62,6 +62,36 @@ def test_split_codec_round_trips_and_serializes():
     assert split.storage_bits(state) > 0
 
 
+def test_column_pairing_round_trips_non_square():
+    for shape in ((32, 64), (64, 32)):
+        m = torch.randn(*shape)
+        col = StructuralVQCodec(codebook(32), rank=4, block_size=32, pair_axis="col")
+        row = StructuralVQCodec(codebook(32), rank=4, block_size=32)
+        out_col = col.decode(col.encode(m))
+        out_row = row.decode(row.encode(m))
+        assert out_col.shape == m.shape and torch.isfinite(out_col).all()
+        err_col = float((out_col - m).norm())
+        err_row = float((out_row - m).norm())
+        assert err_col < err_row * 1.25, (err_col, err_row)
+
+
+def test_build_codecs_honours_pair_axis(tmp_path):
+    path = tmp_path / "books.pt"
+    torch.save({"codebooks": {"w32": codebook(32)}}, path)
+    cfg = {"recursive_codebook_path": str(path), "recursive_codebook_key": "w32",
+           "recursive_rank": 2, "recursive_block_size": 384,
+           "recursive_param_plan": [
+               {"pattern": "transformer.h.*.attn.c_proj.weight", "rank": 2, "pair_axis": "col"},
+               {"pattern": "transformer.h.*.mlp.*", "rank": 2},
+           ]}
+    model = _FakeModel()
+    codecs = build_recursive_codecs(model, cfg, tmp_path)
+    assert codecs[id(model.c_proj)].pair_axis == "col"
+    assert codecs[id(model.w1)].pair_axis == "row"
+    state = codecs[id(model.c_proj)].encode(model.c_proj.detach())
+    assert codecs[id(model.c_proj)].decode(state).shape == model.c_proj.shape
+
+
 def test_split_codec_rejects_gaps():
     with pytest.raises(ValueError):
         SplitVQCodec([(0, 8, StructuralVQCodec(codebook(), rank=1)),
