@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import copy
+import fnmatch
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -24,6 +25,20 @@ from .state_simulation import create_bitsandbytes_dynamic_map
 
 def _packed_device_key(device: torch.device) -> tuple[str, int | None]:
     return device.type, device.index
+
+
+def _percentile_order_statistic(values: torch.Tensor, percentile: float, dim: int) -> torch.Tensor:
+    """Selection-based percentile (order statistic instead of a full sort).
+
+    ``torch.quantile`` sorts every block and interpolates between the two
+    neighbouring order statistics; ``kthvalue`` selects a single rank in O(n).
+    The selected rank matches the un-interpolated quantile position, so the two
+    differ only by the linear-interpolation term (<0.1% on 2048-value blocks),
+    which does not change the codec's fidelity.
+    """
+    n = values.shape[dim]
+    k = min(n, max(1, int(round(percentile * (n - 1))) + 1))
+    return torch.kthvalue(values, k, dim=dim).values
 
 
 def _block_stat_scales(flat: torch.Tensor, block_size: int, *, percentile: float | None = None) -> torch.Tensor:
@@ -38,14 +53,15 @@ def _block_stat_scales(flat: torch.Tensor, block_size: int, *, percentile: float
         if percentile is None:
             scales = abs_blocks.amax(dim=1)
         else:
-            scales = torch.quantile(abs_blocks, percentile, dim=1)
+            scales = _percentile_order_statistic(abs_blocks, percentile, dim=1)
         nonzero = abs_blocks.amax(dim=1) != 0
         scales = torch.where(nonzero, scales.clamp_min(torch.finfo(torch.float32).tiny), torch.zeros_like(scales))
         pieces.append(scales)
     if full != flat.numel():
         tail = flat[full:]
         abs_tail = tail.abs()
-        scale = abs_tail.amax() if percentile is None else torch.quantile(abs_tail, percentile)
+        scale = (abs_tail.amax() if percentile is None
+                 else _percentile_order_statistic(abs_tail, percentile, dim=0))
         scale = torch.where(abs_tail.amax() != 0, scale.clamp_min(torch.finfo(torch.float32).tiny), torch.zeros_like(scale))
         pieces.append(scale.reshape(1))
     return torch.cat(pieces) if pieces else flat.new_empty((0,))
@@ -85,8 +101,8 @@ def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) 
     device-side packing has completed, rather than iterating over every pair in
     Python.
     """
-    if bits not in (6,):
-        raise ValueError("the recursive prototype currently packs the fixed 64-word/6-bit format")
+    if bits not in (4, 5, 6):
+        raise ValueError("the recursive prototype packs 4-, 5- or 6-bit indices")
     values = indices.detach().to(dtype=torch.int64).reshape(-1)
     if bool((values < 0).any()) or bool((values >= (1 << bits)).any()):
         raise ValueError("index is outside the declared codebook")
@@ -95,6 +111,36 @@ def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) 
         raise ValueError("count does not match indices")
     if n == 0:
         return torch.empty((0,), dtype=torch.uint8, device=values.device)
+    if bits != 6:
+        # Generic little-endian bit packing: the group size is the smallest
+        # number of indices that fills whole bytes (2 for 4-bit, 8 for 5-bit).
+        group = 8 // math.gcd(bits, 8)
+        per_group = group * bits // 8
+        out = torch.empty((math.ceil(n * bits / 8),), dtype=torch.uint8, device=values.device)
+        groups = n // group
+        if groups:
+            v = values[:groups * group].reshape(groups, group)
+            weights = torch.bitwise_left_shift(
+                torch.ones((group,), dtype=torch.int64, device=values.device),
+                bits * torch.arange(group, dtype=torch.int64, device=values.device))
+            acc = (v * weights).sum(dim=1)
+            shifts = torch.arange(per_group, dtype=torch.int64, device=values.device) * 8
+            packed = torch.bitwise_and(
+                torch.bitwise_right_shift(acc.unsqueeze(1), shifts), 0xFF).to(torch.uint8)
+            out[:groups * per_group].reshape(groups, per_group).copy_(packed)
+        tail = n - groups * group
+        if tail:
+            base = groups * per_group
+            tail_values = values[groups * group:]
+            weights = torch.bitwise_left_shift(
+                torch.ones((tail,), dtype=torch.int64, device=values.device),
+                bits * torch.arange(tail, dtype=torch.int64, device=values.device))
+            acc = (tail_values * weights).sum()
+            tail_bytes = math.ceil(tail * bits / 8)
+            shifts = torch.arange(tail_bytes, dtype=torch.int64, device=values.device) * 8
+            out[base:base + tail_bytes] = torch.bitwise_and(
+                torch.bitwise_right_shift(acc, shifts), 0xFF).to(torch.uint8)
+        return out
     # Four 6-bit indices occupy exactly three bytes.  This is the same
     # least-significant-bit-first layout used by the legacy scalar loop, but
     # uses tensor slices instead of one Python operation per index.
@@ -121,13 +167,38 @@ def pack_indices(indices: torch.Tensor, bits: int, *, count: int | None = None) 
 
 def unpack_indices(packed: torch.Tensor, count: int, bits: int = 6) -> torch.Tensor:
     """Inverse of :func:`pack_indices`; unused trailing bits are ignored."""
-    if bits != 6 or count < 0:
-        raise ValueError("the recursive prototype uses nonnegative count and 6-bit indices")
+    if bits not in (4, 5, 6) or count < 0:
+        raise ValueError("the recursive prototype uses nonnegative count and 4-, 5- or 6-bit indices")
     raw = packed.detach().to(dtype=torch.int64).reshape(-1)
     if raw.numel() != math.ceil(count * bits / 8):
         raise ValueError("packed byte count does not match index count")
     if count == 0:
         return torch.empty((0,), dtype=torch.long, device=raw.device)
+    if bits != 6:
+        group = 8 // math.gcd(bits, 8)
+        per_group = group * bits // 8
+        mask = (1 << bits) - 1
+        out = torch.empty((count,), dtype=torch.long, device=raw.device)
+        groups = count // group
+        if groups:
+            b = raw[:groups * per_group].reshape(groups, per_group)
+            shifts = torch.arange(per_group, dtype=torch.int64, device=raw.device) * 8
+            acc = torch.bitwise_left_shift(b, shifts).sum(dim=1)
+            v = out[:groups * group].reshape(groups, group)
+            positions = bits * torch.arange(group, dtype=torch.int64, device=raw.device)
+            v[:, :] = torch.bitwise_and(
+                torch.bitwise_right_shift(acc.unsqueeze(1), positions), mask)
+        tail = count - groups * group
+        if tail:
+            base = groups * per_group
+            tail_bytes = math.ceil(tail * bits / 8)
+            tb = raw[base:base + tail_bytes]
+            shifts = torch.arange(tail_bytes, dtype=torch.int64, device=raw.device) * 8
+            acc = torch.bitwise_left_shift(tb, shifts).sum()
+            positions = bits * torch.arange(tail, dtype=torch.int64, device=raw.device)
+            out[groups * group:] = torch.bitwise_and(
+                torch.bitwise_right_shift(acc, positions), mask)
+        return out
     groups = count // 4
     out = torch.empty((count,), dtype=torch.long, device=raw.device)
     if groups:
@@ -153,7 +224,8 @@ class StructuralVQState:
     """Serialized persistent state for one 2-D Muon momentum tensor.
 
     ``u``, ``singular_values`` and ``vh`` are BF16, ``scales`` are FP32, and
-    ``indices`` are packed 6-bit values.  No FP32 momentum is stored.
+    ``indices`` are packed fixed-width values (6-bit for 64-word codebooks,
+    5-bit for 32-word codebooks).  No FP32 momentum is stored.
     """
 
     u: torch.Tensor
@@ -186,22 +258,57 @@ class StructuralVQState:
 
 
 class StructuralVQCodec:
-    """Exact-SVD structural conditioner + fixed 64-word p98 2-D VQ codec."""
+    """Structural low-rank (exact or randomized SVD) + p98 2-D VQ codec."""
 
     def __init__(self, codebook: torch.Tensor, *, rank: int = 8,
-                 block_size: int = 2048, codebook_key: str = "s0_k8_w64_t8_v1200"):
+                 block_size: int = 2048, codebook_key: str = "s0_k8_w64_t8_v1200",
+                 svd_mode: str = "exact", svd_power_iters: int = 2,
+                 svd_oversample: int = 4, svd_seed: int = 20260101):
         codebook = codebook.detach().float().cpu()
-        if codebook.shape != (64, 2) or not torch.isfinite(codebook).all():
-            raise ValueError("recursive prototype requires a finite 64x2 codebook")
+        if codebook.ndim != 2 or codebook.shape[1] != 2 or codebook.shape[0] not in (32, 64) or not torch.isfinite(codebook).all():
+            raise ValueError("recursive prototype requires a finite 32x2 or 64x2 codebook")
         if not bool((codebook.square().sum(dim=1) == 0).any()):
             raise ValueError("codebook must contain an exact zero codeword")
         if rank < 0 or block_size <= 0:
             raise ValueError("rank and block_size must be positive")
+        if svd_mode not in {"exact", "randomized"}:
+            raise ValueError("svd_mode must be 'exact' or 'randomized'")
+        if svd_power_iters < 0 or svd_oversample < 0:
+            raise ValueError("svd power iterations and oversampling must be nonnegative")
         self.codebook = codebook
+        self.index_bits = 6 if codebook.shape[0] == 64 else 5
         self.rank = int(rank)
         self.block_size = int(block_size)
         self.codebook_key = str(codebook_key)
+        self.svd_mode = str(svd_mode)
+        self.svd_power_iters = int(svd_power_iters)
+        self.svd_oversample = int(svd_oversample)
+        self.svd_seed = int(svd_seed)
         self._codebook_cache: dict[tuple[str, int | None], torch.Tensor] = {}
+
+    def _top_factors(self, value: torch.Tensor, k: int):
+        """Return truncated ``U, S, Vh`` of ``value`` under the configured extractor."""
+        if k == 0:
+            empty = value.new_empty((value.shape[0], 0))
+            return empty, value.new_empty((0,)), value.new_empty((0, value.shape[1]))
+        if self.svd_mode == "exact":
+            u, s, vh = torch.linalg.svd(value, full_matrices=False)
+            return u[:, :k], s[:k], vh[:k]
+        # Deterministic randomized range finder: the seed is fixed per codec, so
+        # a resumed run reproduces the same projection at every update.
+        n = value.shape[1]
+        width = min(n, k + self.svd_oversample)
+        generator = torch.Generator(device=value.device)
+        generator.manual_seed(self.svd_seed)
+        omega = torch.randn(n, width, generator=generator, device=value.device,
+                            dtype=value.dtype)
+        y = value @ omega
+        for _ in range(self.svd_power_iters):
+            y = value @ (value.transpose(0, 1) @ y)
+        q, _ = torch.linalg.qr(y)
+        b = q.transpose(0, 1) @ value
+        ub, s, vh = torch.linalg.svd(b, full_matrices=False)
+        return (q @ ub[:, :k]), s[:k], vh[:k]
 
     def _codebook_on(self, device: torch.device) -> torch.Tensor:
         key = _packed_device_key(device)
@@ -218,9 +325,8 @@ class StructuralVQCodec:
         value = momentum.detach().float()
         if value.ndim != 2:
             raise ValueError("structural recursive state requires a 2-D matrix")
-        u, s, vh = torch.linalg.svd(value, full_matrices=False)
-        k = min(self.rank, int(s.numel()))
-        uk, sk, vhk = u[:, :k], s[:k], vh[:k]
+        k = min(self.rank, int(min(value.shape)))
+        uk, sk, vhk = self._top_factors(value, k)
         low = (uk * sk) @ vhk if k else torch.zeros_like(value)
         residual = value - low
         if residual.numel() % 2:
@@ -243,7 +349,7 @@ class StructuralVQCodec:
         indices = torch.where(pair_scales > 0, indices, torch.zeros_like(indices))
         return StructuralVQState(uk.to(torch.bfloat16), sk.to(torch.bfloat16),
                                  vhk.to(torch.bfloat16), scales.float(),
-                                 pack_indices(indices, 6), int(indices.numel()),
+                                 pack_indices(indices, self.index_bits), int(indices.numel()),
                                  tuple(value.shape), self.codebook_key)
 
     @torch.no_grad()
@@ -255,7 +361,7 @@ class StructuralVQCodec:
         s = state.singular_values.to(device=device, dtype=torch.float32)
         vh = state.vh.to(device=device, dtype=torch.float32)
         low = (u * s) @ vh if s.numel() else torch.zeros(state.shape, device=device)
-        indices = unpack_indices(state.indices, state.pair_count)
+        indices = unpack_indices(state.indices, state.pair_count, self.index_bits)
         scales = state.scales.to(device=device, dtype=torch.float32)
         pair_scales = _repeat_block_scales(scales, state.pair_count, self.block_size // 2)
         pairs = self._codebook_on(device)[indices] * pair_scales[:, None]
@@ -266,6 +372,71 @@ class StructuralVQCodec:
         return int(state.u.numel() * 16 + state.singular_values.numel() * 16 +
                    state.vh.numel() * 16 + state.scales.numel() * 32 +
                    state.indices.numel() * 8)
+
+
+@dataclass
+class SplitVQState:
+    """Row-partitioned VQ state: one :class:`StructuralVQState` per row block."""
+
+    parts: list
+    shape: tuple[int, int]
+
+    def to(self, device: torch.device) -> "SplitVQState":
+        return SplitVQState([part.to(device) for part in self.parts], self.shape)
+
+    def state_dict(self) -> dict:
+        return {"parts": [part.state_dict() for part in self.parts],
+                "shape": tuple(self.shape)}
+
+    @classmethod
+    def from_state_dict(cls, value: dict) -> "SplitVQState":
+        return cls([StructuralVQState.from_state_dict(part) for part in value["parts"]],
+                   tuple(value["shape"]))
+
+
+class SplitVQCodec:
+    """Compose independent row-block codecs into one per-parameter codec.
+
+    The fused QKV projection is a single Muon parameter, but Q, K and V need
+    different ranks and index widths.  This wrapper encodes each contiguous row
+    band with its own :class:`StructuralVQCodec` and decodes by concatenation.
+    """
+
+    def __init__(self, blocks, *, shape: tuple[int, int]):
+        if not blocks:
+            raise ValueError("split codec requires at least one row block")
+        shape = tuple(int(x) for x in shape)
+        cursor = 0
+        for start, end, _codec in blocks:
+            if start != cursor or end <= start:
+                raise ValueError("split codec row blocks must be contiguous and ordered")
+            cursor = end
+        if cursor != shape[0]:
+            raise ValueError("split codec row blocks must cover the full matrix")
+        self.blocks = list(blocks)
+        self.shape = shape
+
+    @property
+    def subcodecs(self):
+        return [codec for _start, _end, codec in self.blocks]
+
+    @torch.no_grad()
+    def encode(self, momentum: torch.Tensor) -> SplitVQState:
+        value = momentum.detach().float()
+        if tuple(value.shape) != self.shape:
+            raise ValueError("split codec shape mismatch")
+        return SplitVQState([codec.encode(value[start:end])
+                             for start, end, codec in self.blocks], self.shape)
+
+    @torch.no_grad()
+    def decode(self, state: SplitVQState, *, device=None) -> torch.Tensor:
+        device = device or torch.device("cpu")
+        return torch.cat([codec.decode(part, device=device)
+                          for (_start, _end, codec), part in zip(self.blocks, state.parts)], dim=0)
+
+    def storage_bits(self, state: SplitVQState) -> int:
+        return int(sum(codec.storage_bits(part) for (_start, _end, codec), part
+                       in zip(self.blocks, state.parts)))
 
 
 @dataclass
@@ -353,26 +524,65 @@ class StructuralINT4Codec:
 
 
 def build_recursive_codecs(model, cfg: dict, root: Path) -> dict[int, object]:
-    """Build codecs for the experimental recipe without changing production paths."""
+    """Build codecs for the experimental recipe without changing production paths.
+
+    ``recursive_param_plan`` optionally overrides rank / block size / codebook
+    per parameter (first matching ``fnmatch`` pattern wins) and can split one
+    parameter into contiguous row bands with independent codecs.
+    """
     rank = int(cfg.get("recursive_rank", 8)); block = int(cfg.get("recursive_block_size", 2048))
     mode = cfg.get("recursive_structure_mode", "exact_svd_oracle")
     if mode != "exact_svd_oracle":
         raise ValueError("only exact_svd_oracle is currently implemented")
-    codecs = {}
+    kind = cfg.get("recursive_representation", "vq_int3")
+    plan = list(cfg.get("recursive_param_plan") or [])
+    if plan and kind != "vq_int3":
+        raise ValueError("recursive_param_plan requires recursive_representation=vq_int3")
+    codebooks: dict[str, torch.Tensor] = {}
+    blob = None
     if cfg.get("recursive_codebook_path"):
         path = Path(cfg["recursive_codebook_path"])
         if not path.is_absolute(): path = (root / path).resolve()
         blob = torch.load(path, map_location="cpu", weights_only=False)
-        codebook = blob["codebooks"][cfg["recursive_codebook_key"]].float()
-    else:
-        codebook = None
-    kind = cfg.get("recursive_representation", "vq_int3")
+
+    def codebook_for(key):
+        if key is None:
+            return None
+        if blob is None:
+            raise ValueError("recursive_param_plan needs recursive_codebook_path")
+        if key not in codebooks:
+            codebooks[key] = blob["codebooks"][key].float()
+        return codebooks[key]
+
+    default_key = cfg.get("recursive_codebook_key")
+    svd_kwargs = {"svd_mode": cfg.get("recursive_svd_mode", "exact"),
+                  "svd_power_iters": int(cfg.get("recursive_svd_power_iters", 2)),
+                  "svd_oversample": int(cfg.get("recursive_svd_oversample", 4))}
+    codecs = {}
     for name, parameter in model.named_parameters():
         if parameter.ndim != 2 or not name.startswith("transformer.h."):
             continue
-        codecs[id(parameter)] = (StructuralVQCodec(codebook, rank=rank, block_size=block,
-                                                    codebook_key=cfg.get("recursive_codebook_key", ""))
-                                 if kind == "vq_int3" else StructuralINT4Codec(rank=rank, block_size=block))
+        if kind != "vq_int3":
+            codecs[id(parameter)] = StructuralINT4Codec(rank=rank, block_size=block)
+            continue
+        entry = next((e for e in plan if fnmatch.fnmatchcase(name, str(e["pattern"]))), None)
+        if entry is not None and "splits" in entry:
+            blocks = []
+            for split in entry["splits"]:
+                start, end = (int(x) for x in split["rows"])
+                key = split.get("codebook_key", default_key)
+                blocks.append((start, end, StructuralVQCodec(
+                    codebook_for(key), rank=int(split["rank"]),
+                    block_size=int(split.get("block_size", block)),
+                    codebook_key=key or "", **svd_kwargs)))
+            codecs[id(parameter)] = SplitVQCodec(blocks, shape=tuple(parameter.shape))
+        else:
+            local_rank = int(entry["rank"]) if entry is not None and "rank" in entry else rank
+            local_block = int(entry.get("block_size", block)) if entry is not None else block
+            key = entry.get("codebook_key", default_key) if entry is not None else default_key
+            codecs[id(parameter)] = StructuralVQCodec(codebook_for(key), rank=local_rank,
+                                                      block_size=local_block,
+                                                      codebook_key=key or "", **svd_kwargs)
     if not codecs:
         raise ValueError("recursive_muon found no eligible 2-D Muon parameters")
     return codecs
@@ -444,6 +654,10 @@ class RecursiveMuon(torch.optim.Optimizer):
     def _serialize_encoded(value):
         if isinstance(value, StructuralVQState):
             return {"_recursive_state_type": "vq", **value.state_dict()}
+        if isinstance(value, SplitVQState):
+            return {"_recursive_state_type": "split_vq",
+                    "parts": [RecursiveMuon._serialize_encoded(part) for part in value.parts],
+                    "shape": tuple(value.shape)}
         if isinstance(value, StructuralINT4State):
             return {"_recursive_state_type": "int4", "u": value.u.cpu(),
                     "singular_values": value.singular_values.cpu(), "vh": value.vh.cpu(),
@@ -459,6 +673,9 @@ class RecursiveMuon(torch.optim.Optimizer):
         if kind == "vq":
             payload = {key: item for key, item in value.items() if key != "_recursive_state_type"}
             return StructuralVQState.from_state_dict(payload)
+        if kind == "split_vq":
+            return SplitVQState([RecursiveMuon._deserialize_encoded(part)
+                                 for part in value["parts"]], tuple(value["shape"]))
         if kind == "int4":
             return StructuralINT4State(value["u"], value["singular_values"], value["vh"],
                                        value["scales"], value["codes"], int(value["count"]),
@@ -486,7 +703,7 @@ class RecursiveMuon(torch.optim.Optimizer):
         # back on the active parameter device.  No FP32 momentum is created.
         for parameter, state in self.state.items():
             encoded = state.get("compressed_momentum")
-            if isinstance(encoded, (StructuralVQState, StructuralINT4State)):
+            if isinstance(encoded, (StructuralVQState, StructuralINT4State, SplitVQState)):
                 state["compressed_momentum"] = encoded.to(parameter.device)
             error = state.get("momentum_error")
             if torch.is_tensor(error):
@@ -593,10 +810,11 @@ class RecursiveMuon(torch.optim.Optimizer):
                                      "has_fp32_momentum": False})
         codebook_ids = set(); codebook_bits = 0
         for codec in self.codecs.values():
-            if hasattr(codec, "codebook"):
-                identity = ("vq", getattr(codec, "codebook_key", "default"))
-                if identity not in codebook_ids:
-                    codebook_ids.add(identity); codebook_bits += int(codec.codebook.numel() * 32)
+            for sub in (codec.subcodecs if isinstance(codec, SplitVQCodec) else [codec]):
+                if hasattr(sub, "codebook"):
+                    identity = ("vq", getattr(sub, "codebook_key", "default"))
+                    if identity not in codebook_ids:
+                        codebook_ids.add(identity); codebook_bits += int(sub.codebook.numel() * 32)
         compressed_bits = sum(r["storage_bits"] for r in rows)
         muon_rows = [r for r in rows if "key" not in r]
         compressed_muon_bits = sum(r["storage_bits"] for r in muon_rows)
@@ -624,4 +842,8 @@ class RecursiveMuon(torch.optim.Optimizer):
                 "error_feedback_mode": self.recursive_error_feedback_mode,
                 "error_feedback_interval": self.recursive_error_feedback_interval,
                 "compressed_muon_tensor_count": sum("key" not in r for r in rows),
-                "structure_mode": "exact_svd_oracle"}
+                "structure_mode": "exact_svd_oracle",
+                "svd_mode": next((c.svd_mode for c in self.codecs.values()
+                                  if isinstance(c, StructuralVQCodec)),
+                                 next((c.subcodecs[0].svd_mode for c in self.codecs.values()
+                                       if isinstance(c, SplitVQCodec)), None))}

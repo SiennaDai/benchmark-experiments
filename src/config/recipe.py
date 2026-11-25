@@ -28,7 +28,7 @@ FIELDS = {
 
 # These fields are deliberately opt-in so existing strict recipes retain their
 # exact serialized scientific configuration and therefore their fingerprints.
-OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "recursive_error_feedback_alpha", "recursive_error_feedback_mode", "recursive_error_feedback_interval", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates", "muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"}}
+OPTIONAL_FIELDS = {"schedule": {"total_updates"}, "optimizer": {"muon_momentum", "muon_nesterov", "muon_ns_steps", "muon_ns_coefficients", "muon_eps", "recursive_error_feedback_alpha", "recursive_error_feedback_mode", "recursive_error_feedback_interval", "state_quantization_granularity", "state_quantization_block_size", "recursive_rank", "recursive_block_size", "recursive_factor_dtype", "recursive_structure_mode", "recursive_representation", "recursive_codebook_path", "recursive_codebook_key", "recursive_param_plan", "recursive_svd_mode", "recursive_svd_power_iters", "recursive_svd_oversample"}, "logging": {"state_diagnostics", "muon_update_fidelity", "muon_momentum_snapshot_updates", "muon_mechanism_snapshot_updates", "muon_mechanism_scalar_updates"}}
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -45,6 +45,61 @@ def _require_type(value: Any, typ: type | tuple[type, ...], path: str) -> None:
         raise RecipeError(f"{path} must be int")
     if not isinstance(value, typ):
         raise RecipeError(f"{path} has wrong type")
+
+
+def _positive_int(value: Any, path: str) -> None:
+    _require_type(value, int, path)
+    if value <= 0:
+        raise RecipeError(f"{path} must be positive")
+
+
+def _validate_recursive_param_plan(plan: Any) -> None:
+    if not isinstance(plan, list) or not plan:
+        raise RecipeError("optimizer.recursive_param_plan must be a non-empty array")
+    allowed = {"pattern", "rank", "block_size", "codebook_key", "splits"}
+    split_allowed = {"rows", "rank", "block_size", "codebook_key"}
+    for index, entry in enumerate(plan):
+        where = f"optimizer.recursive_param_plan[{index}]"
+        if not isinstance(entry, dict):
+            raise RecipeError(f"{where} must be an object")
+        if set(entry) - allowed:
+            raise RecipeError(f"{where} has unknown fields: {sorted(set(entry) - allowed)}")
+        pattern = entry.get("pattern")
+        if not isinstance(pattern, str) or not pattern:
+            raise RecipeError(f"{where}.pattern must be a non-empty string")
+        has_rank, has_splits = "rank" in entry, "splits" in entry
+        if has_rank == has_splits:
+            raise RecipeError(f"{where} requires exactly one of rank or splits")
+        if "block_size" in entry:
+            _positive_int(entry["block_size"], f"{where}.block_size")
+        if "codebook_key" in entry:
+            _require_type(entry["codebook_key"], str, f"{where}.codebook_key")
+        if has_rank:
+            _positive_int(entry["rank"], f"{where}.rank")
+            continue
+        splits = entry["splits"]
+        if not isinstance(splits, list) or not splits:
+            raise RecipeError(f"{where}.splits must be a non-empty array")
+        cursor = 0
+        for s_index, split in enumerate(splits):
+            s_where = f"{where}.splits[{s_index}]"
+            if not isinstance(split, dict) or set(split) - split_allowed:
+                raise RecipeError(f"{s_where} must be an object with rows/rank and optional block_size/codebook_key")
+            rows = split.get("rows")
+            if (not isinstance(rows, list) or len(rows) != 2
+                    or not all(isinstance(x, int) and not isinstance(x, bool) for x in rows)
+                    or not 0 <= rows[0] < rows[1]):
+                raise RecipeError(f"{s_where}.rows must be [start, end] with 0 <= start < end")
+            if rows[0] != cursor:
+                raise RecipeError(f"{s_where}.rows must be contiguous and start at 0")
+            cursor = rows[1]
+            if "rank" not in split:
+                raise RecipeError(f"{s_where}.rank is required")
+            _positive_int(split["rank"], f"{s_where}.rank")
+            if "block_size" in split:
+                _positive_int(split["block_size"], f"{s_where}.block_size")
+            if "codebook_key" in split:
+                _require_type(split["codebook_key"], str, f"{s_where}.codebook_key")
 
 
 def load_recipe(path: str | Path) -> dict[str, Any]:
@@ -155,6 +210,20 @@ def load_recipe(path: str | Path) -> dict[str, Any]:
             raise RecipeError("unsupported recursive_representation")
         if o.get("recursive_representation", "vq_int3") == "vq_int3" and (not isinstance(o.get("recursive_codebook_path"), str) or not isinstance(o.get("recursive_codebook_key"), str)):
             raise RecipeError("recursive VQ requires recursive_codebook_path and recursive_codebook_key")
+        if "recursive_param_plan" in o:
+            if o.get("recursive_representation", "vq_int3") != "vq_int3":
+                raise RecipeError("recursive_param_plan requires recursive_representation=vq_int3")
+            _validate_recursive_param_plan(o["recursive_param_plan"])
+        if "recursive_svd_mode" in o:
+            if o["recursive_svd_mode"] not in {"exact", "randomized"}:
+                raise RecipeError("optimizer.recursive_svd_mode must be exact or randomized")
+            if o.get("recursive_representation", "vq_int3") != "vq_int3":
+                raise RecipeError("recursive_svd_mode requires recursive_representation=vq_int3")
+        for key in ("recursive_svd_power_iters", "recursive_svd_oversample"):
+            if key in o:
+                _require_type(o[key], int, f"optimizer.{key}")
+                if o[key] < 0:
+                    raise RecipeError(f"optimizer.{key} must be nonnegative")
     if p["compute"] not in {"fp32", "bf16"} or p["parameter_dtype"] != "fp32" or p["gradient_dtype"] != "fp32":
         raise RecipeError("unsupported precision combination")
     if p["attention_backend"] not in {"math", "auto"} or e["attention_backend"] not in {"math", "auto"}:

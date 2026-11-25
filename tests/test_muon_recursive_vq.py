@@ -47,11 +47,22 @@ def test_recursive_contiguous_pairing_matches_generic_analysis_path():
         assert torch.equal(unpair_values(pairs, singles, shape, pair_index, single_index), matrix)
 
 
-def test_recursive_vectorized_p98_matches_block_loop():
-    for flat in (torch.randn(4096), torch.zeros(4096), torch.cat((torch.zeros(2047), torch.tensor([100.0]), torch.randn(2048)) )):
-        assert torch.allclose(_block_stat_scales(flat, 2048, percentile=.98),
-                              vector_scales(flat.reshape(-1, 2), "p98", block_size=2048),
-                              atol=1e-6, rtol=0)
+def test_recursive_vectorized_p98_order_statistic_matches_block_loop():
+    def reference(flat):
+        out = []
+        for start in range(0, flat.numel(), 2048):
+            b = flat[start:start + 2048].abs()
+            if not bool(b.any()):
+                out.append(b.new_zeros(())); continue
+            k = min(b.numel(), int(round(.98 * (b.numel() - 1))) + 1)
+            out.append(b.sort().values[k - 1].clamp_min(torch.finfo(torch.float32).tiny))
+        return torch.stack(out)
+    for flat in (torch.randn(4096), torch.zeros(4096), torch.cat((torch.zeros(2047), torch.tensor([100.0]), torch.randn(2048)))):
+        vectorized = _block_stat_scales(flat, 2048, percentile=.98)
+        assert torch.allclose(vectorized, reference(flat), atol=1e-6, rtol=0)
+        # The order statistic stays within the interpolation term of quantile.
+        assert torch.allclose(vectorized, vector_scales(flat.reshape(-1, 2), "p98", block_size=2048),
+                              atol=1e-2, rtol=6e-3)
 
 
 def test_recursive_runtime_hot_path_has_no_pair_index_or_python_index_pack_loop():
@@ -83,7 +94,10 @@ def test_vq_optimized_codec_matches_legacy_assignment_and_decode():
     low = (u[:, :8] * s[:8]) @ vh[:8]
     residual = matrix - low
     pairs = residual.reshape(-1, 2)
-    scales = vector_scales(pairs, "p98", block_size=2048)
+    # The codec's p98 is now an order statistic (kthvalue) rather than a sorted
+    # interpolated quantile; reuse the helper so this test isolates pairing,
+    # assignment and decode rather than the scale definition.
+    scales = _block_stat_scales(residual.reshape(-1), 2048, percentile=.98)
     pair_scales = torch.repeat_interleave(scales, 1024)[:pairs.shape[0]]
     normalized = (pairs / pair_scales.clamp_min(torch.finfo(torch.float32).tiny)[:, None]).clamp(-1, 1)
     indices = torch.cdist(normalized, cb).argmin(dim=1)
